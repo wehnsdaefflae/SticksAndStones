@@ -2,25 +2,42 @@
 import json
 import time
 
-import selenium
 from selenium import webdriver
 # from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
+# from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.edge.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.edge.service import Service
 
 
 def open_browser() -> None:
     options = Options()
+
+    # https://msedgedriver.azureedge.net/117.0.2045.40/edgedriver_linux64.zip
     # options.add_argument("--headless")  # for running headlessly
 
-    browser = webdriver.Chrome(options=options)
+    exec_path = "/usr/bin/microsoft-edge"
+    options.binary_location = exec_path
+
+    driver_path = "/home/mark/Downloads/msedgedriver"
+    service = Service(executable_path=driver_path)
+
+    browser = webdriver.Edge(service=service, options=options)
+    # browser = webdriver.Chrome(options=options)
     browser.implicitly_wait(5)
 
     base_url = "https://www.bing.com"
+    # session_id = browser.session_id
+    # driver = webdriver.Remote(command_executor=base_url, options=options)
+    # driver.close()
+    # driver.session_id = session_id
+
     # base_url = "https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx"
     browser.get(base_url)
     time.sleep(5)
+
+    browser.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     login_button = browser.find_element(By.ID, "id_s")
     login_button.click()
