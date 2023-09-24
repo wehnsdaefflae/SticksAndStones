@@ -164,6 +164,7 @@ def main() -> None:
     elevenlabs.set_api_key(login_info["elevenlabs_api"])
 
     # voices = elevenlabs.voices()
+    # https://github.com/elevenlabs/elevenlabs-python
 
     details = clothing_details()
     print(details)
