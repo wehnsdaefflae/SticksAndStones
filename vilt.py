@@ -1,18 +1,17 @@
+import json
+
+import openai
 from transformers import ViltProcessor, ViltForQuestionAnswering
-import requests
 from PIL import Image
+
+import elevenlabs
+
+from llm_answers import make_element, respond, Response
 
 
 def ask(question: str) -> str:
-    # prepare image + question
-    # url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-    # image = Image.open(requests.get(url, stream=True).raw)
-    # text = "How many cats are there?"
-
     print(f"Question: {question}")
 
-    #url = 'https://storage.googleapis.com/sfr-vision-language-research/BLIP/demo.jpg'
-    #image = Image.open(requests.get(url, stream=True).raw).convert('RGB')
     image = Image.open("markwernsdorfer_mgr2.jpg").convert('RGB')
 
     processor = ViltProcessor.from_pretrained("dandelin/vilt-b32-finetuned-vqa")
@@ -26,7 +25,7 @@ def ask(question: str) -> str:
     logits = outputs.logits
     idx = logits.argmax(-1).item()
     answer = model.config.id2label[idx]
-    print(f"Answer: {answer}\n")
+    print(f"Answer: {answer}")
     return answer
 
 
@@ -34,96 +33,138 @@ def contains_any(response: str, terms: list) -> bool:
     return any(term in response for term in terms)
 
 
-def clothing_details() -> dict:
+def snarky_description(question: str, answer: str, previous: str) -> Response:
+    data = (
+        make_element(previous, "PreviousComment") +
+        make_element(question, "Question") +
+        make_element(answer, "Answer")
+    )
+    instruction = (
+        "Make a witty and snarky two-sentence comment in German about the outfit described above. "
+        "Continue seamlessly from where the text in the `<PreviousComment>` tag left off but do not repeat the text."
+    )
+
+    # response = respond(instruction, model="gpt-3.5-turbo", data=data, recap=recap, temperature=1.)
+    response = respond(instruction, model="gpt-4", data=data, temperature=1.)
+    return response
+
+
+def enquire(question: str, details_dict: dict[str, str]) -> None:
+    answer = ask(question)
+    details_dict[question] = answer
+    previous_comments = details_dict.get("_previous_comments", "")
+    response = snarky_description(question, answer, previous_comments)
+    audio = elevenlabs.generate(
+        text=response.output,
+        voice="Bella",
+        model="eleven_multilingual_v2"
+    )
+    elevenlabs.play(audio)
+    details_dict["_summary"] = response.summary
+    details_dict["_previous_comments"] = previous_comments + " " + response.output
+    print(f"Comment: {response.output}\n")
+
+
+def clothing_details() -> dict[str, str]:
     details = dict()
 
-    attire_visible = ask("Is the main attire in the image visible?")
-    if contains_any(attire_visible, ["yes", "yep", "yeah"]):
-
-        attire = ask("What type of clothes are visible?")
-        if contains_any(attire, ["fancy", "formal", "business"]):
-            details['type_of_clothes'] = "fancy"
-            details['material_of_clothes'] = ask("What material or fabric does the attire look like?")
-
-            formal_visible = ask("Is there a suit or dress visible?")
-            if contains_any(formal_visible, ["suit"]):
-                details['clothing_item'] = "suit"
-                details['number_of_pieces'] = ask("How many pieces does the suit have?")
-                details['color_of_suit'] = ask("What is the color of the suit?")
-                details['pattern_of_suit'] = ask("Does the suit have any patterns or designs?")
-
+    # Main Attire Details
+    enquire("Is the main attire visible?", details)
+    if contains_any(details["Is the main attire visible?"], ["yes", "yep", "yeah"]):
+        enquire("What type of clothes are visible?", details)
+        if contains_any(details["What type of clothes are visible?"], ["fancy", "formal", "business"]):
+            enquire("What material or fabric does the attire look like?", details)
+            enquire("Is there a suit or dress visible?", details)
+            if contains_any(details["Is there a suit or dress visible?"], ["suit"]):
+                enquire("How many pieces does the suit have?", details)
+                enquire("What is the color of the suit?", details)
+                enquire("Does the suit have any patterns or designs?", details)
             else:
-                details['clothing_item'] = "dress"
-                details['length_of_dress'] = ask("How long is the dress?")
-                details['color_of_dress'] = ask("What is the color of the dress?")
-                details['pattern_of_dress'] = ask("Does the dress have any patterns or designs?")
-
+                enquire("How long is the dress?", details)
+                enquire("What is the color of the dress?", details)
+                enquire("Does the dress have any patterns or designs?", details)
         else:
-            details['type_of_clothes'] = "everyday"
-            details['material_of_clothes'] = ask("What material or fabric does the attire look like?")
+            enquire("Is there a shirt-pants combo or a single outfit visible?", details)
+            if contains_any(details["Is there a shirt-pants combo or a single outfit visible?"], ["combo", "shirt and pants", "shirt-pants"]):
+                enquire("What type of shirt or top is visible?", details)
+                enquire("What is the color of the shirt or top?", details)
+                enquire("What type of pants or skirt is visible?", details)
+                enquire("What is the color of the pants or skirt?", details)
+            else:
+                enquire("What type of single outfit is visible?", details)
+                enquire("What is the color of the single outfit?", details)
 
-            # ... Continue the rest for casual wear ...
+    # Footwear Details
+    enquire("Is any footwear visible in the image?", details)
+    if contains_any(details["Is any footwear visible in the image?"], ["yes", "yep", "yeah"]):
+        enquire("What type of footwear is visible?", details)
+        enquire("What is the color of the footwear?", details)
+        enquire("Does the footwear have any patterns or designs?", details)
 
-    # Adding footwear details
-    footwear_visible = ask("Is any footwear visible in the image?")
-    if contains_any(footwear_visible, ["yes", "yep", "yeah"]):
-        details['type_of_footwear'] = ask("What type of footwear is visible?")
-        details['color_of_footwear'] = ask("What is the color of the footwear?")
-        details['pattern_of_footwear'] = ask("Does the footwear have any patterns or designs?")
+    # Jewelry and Accessory Details
+    enquire("Is any jewelry visible?", details)
+    if contains_any(details["Is any jewelry visible?"], ["yes", "yep", "yeah"]):
+        enquire("What type of jewelry is visible?", details)
+        enquire("What is the color of the jewelry?", details)
 
-    # Adding jewelry and accessory details
-    jewelry_visible = ask("Is any jewelry visible?")
-    if contains_any(jewelry_visible, ["yes", "yep", "yeah"]):
-        details['type_of_jewelry'] = ask("What type of jewelry is visible?")
-        details['details_or_color_of_jewelry'] = ask("What is the color or special feature of the jewelry?")
+    enquire("Is any accessory like a hat, scarf, or belt visible?", details)
+    if contains_any(details["Is any accessory like a hat, scarf, or belt visible?"], ["yes", "yep", "yeah"]):
+        enquire("What type of accessory is visible?", details)
+        enquire("What is the color of the accessory?", details)
 
-    accessory_visible = ask("Is any accessory like a hat, scarf, or belt visible?")
-    if contains_any(accessory_visible, ["yes", "yep", "yeah"]):
-        details['type_of_accessory'] = ask("What type of accessory is visible?")
-        details['details_or_color_of_accessory'] = ask("What is the color or special feature of the accessory?")
+    # Bag Details
+    enquire("Is there a bag or handbag visible?", details)
+    if contains_any(details["Is there a bag or handbag visible?"], ["yes", "yep", "yeah"]):
+        enquire("What type of bag is visible?", details)
+        enquire("What is the color of the bag?", details)
+        enquire("Does the bag have any patterns or designs?", details)
 
-    bag_visible = ask("Is there a bag or handbag visible?")
-    if contains_any(bag_visible, ["yes", "yep", "yeah"]):
-        details['type_of_bag'] = ask("What type of bag is visible?")
-        details['color_of_bag'] = ask("What is the color of the bag?")
-        details['pattern_of_bag'] = ask("Does the bag have any patterns or designs?")
+    # Other Details
+    enquire("Can you discern the fit of the attire?", details)
+    if contains_any(details["Can you discern the fit of the attire?"], ["yes", "yep", "yeah"]):
+        enquire("How does the attire fit? Snug, loose, or regular?", details)
 
-    fit_visible = ask("Can you discern the fit of the attire?")
-    if contains_any(fit_visible, ["yes", "yep", "yeah"]):
-        details['fit_of_clothes'] = ask("How does the attire fit? Snug, loose, or regular?")
+    enquire("Can you see the sleeves of the attire?", details)
+    if contains_any(details["Can you see the sleeves of the attire?"], ["yes", "yep", "yeah"]):
+        enquire("What type of sleeves does it have?", details)
 
-    sleeve_visible = ask("Can you see the sleeves of the attire?")
-    if contains_any(sleeve_visible, ["yes", "yep", "yeah"]):
-        details['type_of_sleeves'] = ask("What type of sleeves does it have?")
+    enquire("Can you determine the neckline of the attire?", details)
+    if contains_any(details["Can you determine the neckline of the attire?"], ["yes", "yep", "yeah"]):
+        enquire("What kind of neckline does it have?", details)
 
-    neckline_visible = ask("Can you determine the neckline of the attire?")
-    if contains_any(neckline_visible, ["yes", "yep", "yeah"]):
-        details['type_of_neckline'] = ask("What kind of neckline does it have?")
+    enquire("Are there any embellishments like sequins or beads on the attire?", details)
+    if contains_any(details["Are there any embellishments like sequins or beads on the attire?"], ["yes", "yep", "yeah"]):
+        enquire("Describe the embellishments.", details)
 
-    embellishment_visible = ask("Are there any embellishments like sequins or beads on the attire?")
-    if contains_any(embellishment_visible, ["yes", "yep", "yeah"]):
-        details['embellishments'] = ask("Describe the embellishments.")
+    enquire("Can you spot any pockets on the attire?", details)
+    if contains_any(details["Can you spot any pockets on the attire?"], ["yes", "yep", "yeah"]):
+        enquire("What type of pockets are visible?", details)
 
-    pockets_visible = ask("Can you spot any pockets on the attire?")
-    if contains_any(pockets_visible, ["yes", "yep", "yeah"]):
-        details['type_of_pockets'] = ask("What type of pockets are visible?")
+    enquire("Are multiple layers, like a jacket or cardigan, visible over the main attire?", details)
+    if contains_any(details["Are multiple layers, like a jacket or cardigan, visible over the main attire?"], ["yes", "yep", "yeah"]):
+        enquire("Describe the outer layer.", details)
 
-    layer_visible = ask("Are multiple layers, like a jacket or cardigan, visible over the main attire?")
-    if contains_any(layer_visible, ["yes", "yep", "yeah"]):
-        details['type_of_outer_layer'] = ask("Describe the outer layer.")
+    enquire("Are any hair accessories visible?", details)
+    if contains_any(details["Are any hair accessories visible?"], ["yes", "yep", "yeah"]):
+        enquire("What hair accessory is visible?", details)
 
-    hair_accessory_visible = ask("Are any hair accessories visible?")
-    if contains_any(hair_accessory_visible, ["yes", "yep", "yeah"]):
-        details['type_of_hair_accessory'] = ask("What hair accessory is visible?")
-
-    watch_visible = ask("Is a watch visible?")
-    if contains_any(watch_visible, ["yes", "yep", "yeah"]):
-        details['type_of_watch'] = ask("Describe the watch.")
+    enquire("Is a watch visible?", details)
+    if contains_any(details["Is a watch visible?"], ["yes", "yep", "yeah"]):
+        enquire("Describe the watch.", details)
 
     return details
 
 
 def main() -> None:
+    openai.api_key_path = "openai_api_key.txt"
+
+    with open("login_info.json", mode="r") as f:
+        login_info = json.load(f)
+
+    elevenlabs.set_api_key(login_info["elevenlabs_api"])
+
+    # voices = elevenlabs.voices()
+
     details = clothing_details()
     print(details)
     # use the above json to generate a snarky description of someone's outfit.
