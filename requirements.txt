@@ -14,3 +14,5 @@ sentencepiece~=0.1.99
 elevenlabs~=0.2.26
 TTS~=0.17.4
 playsound~=1.3.0
+optimum~=1.13.2
+accelerate~=0.23.0
