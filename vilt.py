@@ -165,6 +165,8 @@ def main() -> None:
 
     # voices = elevenlabs.voices()
     # https://github.com/elevenlabs/elevenlabs-python
+    # https://murf.ai/pricing
+    # https://github.com/neonbjb/tortoise-tts
 
     details = clothing_details()
     print(details)
