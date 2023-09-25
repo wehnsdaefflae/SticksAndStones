@@ -111,6 +111,8 @@ def transcribe(audio: numpy.ndarray, pipe: AutomaticSpeechRecognitionPipeline) -
 
 
 def speak(text: str, model: BarkModel) -> None:
+    # https://app.coqui.ai/account
+    # or coqui locally
     now = time.time()
 
     processor = AutoProcessor.from_pretrained("suno/bark-small")
