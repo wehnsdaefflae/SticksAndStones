@@ -8,6 +8,7 @@ import wave
 
 import scipy
 import torch
+from TTS.api import TTS
 
 from llm_answers import respond
 from transformers import pipeline, AutoProcessor
@@ -110,7 +111,7 @@ def transcribe(audio: numpy.ndarray, pipe: AutomaticSpeechRecognitionPipeline) -
     return prediction
 
 
-def speak(text: str, model: BarkModel) -> None:
+def speak_bark(text: str, model: BarkModel) -> None:
     # https://app.coqui.ai/account
     # https://elevenlabs.io/subscription
     # or coqui locally
@@ -138,10 +139,29 @@ def speak(text: str, model: BarkModel) -> None:
     playsound.playsound("bark_out.wav", True)
 
 
+def speak_tts(text: str, tts: TTS) -> None:
+    now = time.time()
+    if tts.speakers is not None and len(tts.speakers) >= 1:
+        tts.tts_to_file(text=text, file_path="output.wav", speaker=tts.speakers[0])#, language="de")
+    else:
+        tts.tts_to_file(text=text, file_path="output.wav")#, language="de")
+
+    print(f"Time: {time.time() - now}")
+
+    playsound.playsound("output.wav", True)
+
+
+def get_tts_model() -> TTS:
+    tts = TTS("tts_models/de/thorsten/tacotron2-DDC")
+    tts.to("cuda")
+    return tts
+
+
 def main() -> None:
     print("Hoisting models...")
     whisper_model = get_whisper_model()
-    bark_model = get_bark_model()
+    # bark_model = get_bark_model()
+    tts_model = get_tts_model()
 
     i = 0
     summary = ""
@@ -154,7 +174,7 @@ def main() -> None:
         response = respond(instruction, model="gpt-3.5-turbo", data=None, recap=summary, temperature=.5)
         print(f"out: {response.output}")
         summary = response.summary
-        speak(response.output, bark_model)
+        speak_tts(response.output, tts_model)
         i += 1
 
 
