@@ -142,6 +142,7 @@ def summarize(
     len_tokenized_prompt = get_token_len(messages, model_name) * (1. + _margin)
 
     if max_input_ratio >= len_tokenized_prompt / max_tokens:
+        openai.api_key_path = "openai_api_key.txt"
         response_message = openai.ChatCompletion.create(*args, messages=messages, **kwargs)
         first_choice, = response_message.choices
         first_message = first_choice.message
@@ -203,7 +204,7 @@ def _response_prompt(
     prompt = (
             recap_element +
             data_element +
-            instruction.rstrip() + " (NOTE: Do not imitate the above XML syntax.)"
+            instruction.rstrip() + f" (IMPORTANT: Do not imitate the XML syntax from the `<{_recap_tag}>` and `<{_data_tag}>` tag.)"
     )
 
     return prompt
@@ -263,6 +264,7 @@ def respond(
         messages = [{"role": "user", "content": prompt}]
         len_tokenized_prompt = get_token_len(messages, model_name) * (1. + _margin)
 
+    openai.api_key_path = "openai_api_key.txt"
     response_message = openai.ChatCompletion.create(*args, messages=messages, **kwargs)
     first_choice, = response_message.choices
     first_message = first_choice.message
