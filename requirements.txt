@@ -18,3 +18,4 @@ optimum~=1.13.2
 accelerate~=0.23.0
 numpy~=1.23.5
 PyAudio~=0.2.13
+playwright~=1.38.0
