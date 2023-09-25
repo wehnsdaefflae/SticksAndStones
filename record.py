@@ -136,6 +136,7 @@ def speak(text: str, model: BarkModel) -> None:
 
 
 def main() -> None:
+    print("Hoisting models...")
     whisper_model = get_whisper_model()
     bark_model = get_bark_model()
 
