@@ -12,7 +12,11 @@ import accelerate
 # import pygobject
 
 
-def speak(text: str, model: BarkModel) -> None:
+
+def speak_bark(text: str, model: BarkModel) -> None:
+    # https://app.coqui.ai/account
+    # https://elevenlabs.io/subscription
+    # or coqui locally
     now = time.time()
 
     processor = AutoProcessor.from_pretrained("suno/bark-small")

@@ -1,4 +1,3 @@
-import os
 import time
 
 import playsound
@@ -6,26 +5,20 @@ import pyaudio
 import numpy
 import wave
 
-import scipy
 import torch
 from TTS.api import TTS
 
 from llm_answers import respond
-from transformers import pipeline, AutoProcessor
-
-from optimum.bettertransformer import BetterTransformer
-from transformers import AutoModel
+from transformers import pipeline
 
 from transformers.pipelines.automatic_speech_recognition import AutomaticSpeechRecognitionPipeline
-from transformers.models.bark.modeling_bark import BarkModel
 
 
 # Parameters
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-# RATE = 44_100
 RATE = 16_000
-CHUNK = int(RATE * 1.)  # seconds
+CHUNK = int(RATE * .5)  # seconds
 SILENCE_THRESHOLD = 1_000  # Experiment with this value
 
 
@@ -93,17 +86,6 @@ def get_whisper_model() -> AutomaticSpeechRecognitionPipeline:
     return pipe
 
 
-def get_bark_model() -> BarkModel:
-    os.environ["SUNO_OFFLOAD_CPU"] = "True"
-    os.environ["SUNO_USE_SMALL_MODELS"] = "True"
-
-    model = AutoModel.from_pretrained("suno/bark-small", torch_dtype=torch.float)
-    # model = BarkModel.from_pretrained("suno/bark-small", torch_dtype=torch.float)
-    model.to("cuda")
-    model = BetterTransformer.transform(model, keep_original_model=False)
-    return model
-
-
 def transcribe(audio: numpy.ndarray, pipe: AutomaticSpeechRecognitionPipeline) -> str:
     sample = {"path": "/dummy/path/file.wav", "array": audio / 32_768., "sampling_rate": 16_000}
     prediction = pipe(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe", "language": "german"})["text"]
@@ -111,40 +93,10 @@ def transcribe(audio: numpy.ndarray, pipe: AutomaticSpeechRecognitionPipeline) -
     return prediction
 
 
-def speak_bark(text: str, model: BarkModel) -> None:
-    # https://app.coqui.ai/account
-    # https://elevenlabs.io/subscription
-    # or coqui locally
-    now = time.time()
-
-    processor = AutoProcessor.from_pretrained("suno/bark-small")
-
-    inputs = processor(
-        # text=["Hello, my name is Suno. And, uh — and I like pizza. [laughs] But I also have other interests such as playing tic tac toe."],
-        text=[text],
-        return_tensors="pt",
-        # voice_preset="v2/de_speaker_4",
-        # voice_preset="v2/de_speaker_6",
-        voice_preset="v2/de_speaker_7",
-        # voice_preset="v2/de_speaker_8",
-    )
-    inputs.to("cuda")
-
-    speech_values = model.generate(**inputs, do_sample=True)
-
-    sampling_rate = 24_000
-    scipy.io.wavfile.write("bark_out.wav", rate=sampling_rate, data=speech_values.cpu().numpy().squeeze())
-    print(f"Time: {time.time() - now}")
-
-    playsound.playsound("bark_out.wav", True)
-
-
 def speak_tts(text: str, tts: TTS) -> None:
+    text = text.replace(": ", ". ")
     now = time.time()
-    if tts.speakers is not None and len(tts.speakers) >= 1:
-        tts.tts_to_file(text=text, file_path="output.wav", speaker=tts.speakers[0])#, language="de")
-    else:
-        tts.tts_to_file(text=text, file_path="output.wav")#, language="de")
+    tts.tts_to_file(text=text, file_path="output.wav")
 
     print(f"Time: {time.time() - now}")
 
@@ -158,9 +110,10 @@ def get_tts_model() -> TTS:
 
 
 def main() -> None:
+    torch.cuda.empty_cache()
+
     print("Hoisting models...")
     whisper_model = get_whisper_model()
-    # bark_model = get_bark_model()
     tts_model = get_tts_model()
 
     i = 0
@@ -179,4 +132,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    print(torch.cuda.is_available())
     main()
