@@ -6,6 +6,7 @@ import numpy
 import wave
 
 import torch
+import unidecode
 from TTS.api import TTS
 
 from llm_answers import respond
@@ -93,8 +94,28 @@ def transcribe(audio: numpy.ndarray, pipe: AutomaticSpeechRecognitionPipeline) -
     return prediction
 
 
+def custom_transliterate(s: str) -> str:
+    custom_mappings = {
+        'ß': 'ss',
+        'ä': 'ae',
+        'ö': 'oe',
+        'ü': 'ue',
+        'Ä': 'Ae',
+        'Ö': 'Oe',
+        'Ü': 'Ue',
+    }
+
+    # Apply custom mappings
+    for original, replacement in custom_mappings.items():
+        s = s.replace(original, replacement)
+
+    # Further transliterate using unidecode
+    return unidecode.unidecode(s)
+
+
 def speak_tts(text: str, tts: TTS) -> None:
     text = text.replace(": ", ". ")
+    text = custom_transliterate(text)
     now = time.time()
     tts.tts_to_file(text=text, file_path="output.wav")
 
@@ -104,6 +125,15 @@ def speak_tts(text: str, tts: TTS) -> None:
 
 
 def get_tts_model() -> TTS:
+    # tts_models/de/thorsten/tacotron2-DCA
+    # really fast!
+
+    # tts_models/de/thorsten/vits
+    # also fast. and better!
+
+    # tts_models/de/thorsten/tacotron2-DDC
+    # super fast, super good
+
     tts = TTS("tts_models/de/thorsten/tacotron2-DDC")
     tts.to("cuda")
     return tts
