@@ -274,8 +274,6 @@ def talk(generator: Generator[str, None, any]) -> tuple[str, str]:
                 return_value = e.value
                 break
 
-
-
     audio_stream = generate(
         text=_g(),
         voice="Patrick",
