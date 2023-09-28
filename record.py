@@ -1,12 +1,16 @@
+import json
 import time
 import warnings
 from contextlib import contextmanager
+from typing import Generator
 
+from elevenlabs import set_api_key, generate, stream, voices
 import playsound
 import pyaudio
 import numpy
 import wave
 
+import sounddevice
 import torch
 import unidecode
 from TTS.api import TTS
@@ -15,7 +19,7 @@ from transformers import pipeline
 
 from transformers.pipelines.automatic_speech_recognition import AutomaticSpeechRecognitionPipeline
 
-from llm_answers import respond
+from llm_answers import respond, respond_stream
 
 
 class Recorder:
@@ -26,15 +30,17 @@ class Recorder:
         self.rate = 16_000
         segment_length_silent = .5  # seconds
         self.chunk_silent = int(self.rate * segment_length_silent)
-        segment_length_talking = 2  # seconds
+        segment_length_talking = 1  # seconds
         self.chunk_talking = int(self.rate * segment_length_talking)
-        self.ambient_db = 100  # max value, decreases
+        self.ambient_loudness = -1.  # max value, decreases
 
     @contextmanager
     def start_recording(self) -> pyaudio.Stream:
         audio = pyaudio.PyAudio()
         stream = audio.open(
-            format=self.format, channels=self.channels, rate=self.rate,
+            format=self.format,
+            channels=self.channels,
+            rate=self.rate,
             input=True,
             # frames_per_buffer=self.chunk
         )
@@ -53,12 +59,23 @@ class Recorder:
         return 10. * numpy.log10(value)
 
     def update_threshold(self, value: float) -> None:
-        self.ambient_db = self.ambient_db * .9 + value * .1
+        if self.ambient_loudness < 0.:
+            self.ambient_loudness = value * 1.2
+        else:
+            self.ambient_loudness = self.ambient_loudness * .9 + value * .1
 
-    def is_talking(self, value: float, is_already_talking: bool = False) -> bool:
+    def is_talking(self, value: float, is_already_talking: bool = False, ai_is_talking: bool = False) -> bool:
+        if self.ambient_loudness < 0.:
+            return False
+
         if is_already_talking:
-            return value >= self.ambient_db * 1.1
-        return value >= self.ambient_db * 1.3
+            return value >= self.ambient_loudness * 1.1
+
+        if ai_is_talking:
+            # return value >= self.ambient_loudness * 1.3
+            return False
+
+        return value >= self.ambient_loudness * 1.2
 
     def save_to_file(self, all_frames: numpy.ndarray, filename: str = "output.wav") -> None:
         with wave.open(filename, mode="wb") as wf:
@@ -68,24 +85,34 @@ class Recorder:
             wf.writeframes(all_frames.tobytes())
         print(f"Saved to {filename}")
 
-    def record_audio(self) -> numpy.ndarray:
+    def record_audio(self, ai_finishes_at: float) -> tuple[numpy.ndarray, bool]:
         current_frames = list[numpy.ndarray]()
         is_listening = False
         last_amplitude = None
 
+        ai_is_pissed = False
+
         with self.start_recording() as stream:
             while True:
+                ai_is_talking = time.time() < ai_finishes_at
+
                 dynamic_chunk = self.chunk_talking if is_listening else self.chunk_silent
 
                 data = stream.read(dynamic_chunk)
                 amplitude = numpy.frombuffer(data, dtype=numpy.int16)
                 loudness = self.get_loudness(amplitude)
 
-                print(f"Loudness: {loudness:.0f}, Threshold: {self.ambient_db:.0f}")
+                print(f"Loudness: {loudness:.0f}, Threshold: {self.ambient_loudness:.0f}")
 
-                if self.is_talking(loudness, is_already_talking=is_listening):
+                if self.is_talking(loudness, is_already_talking=is_listening, ai_is_talking=ai_is_talking):
                     if not is_listening:
+                        if ai_is_talking:
+                            sounddevice.stop()
+                            print("AI IS PISSED")
+                            ai_is_pissed = True
+
                         print("STARTED LISTENING")
+
                         if last_amplitude is not None:
                             current_frames.append(last_amplitude)
 
@@ -93,7 +120,7 @@ class Recorder:
 
                     current_frames.append(amplitude)
 
-                else:
+                elif not ai_is_talking:
                     self.update_threshold(loudness)
                     if is_listening and 0 < len(current_frames):
                         print("STOPPED LISTENING")
@@ -105,7 +132,7 @@ class Recorder:
         stream.close()
         stream._parent.terminate()
 
-        return numpy.concatenate(current_frames, axis=0)
+        return numpy.concatenate(current_frames, axis=0), ai_is_pissed
 
 
 def get_whisper_model() -> AutomaticSpeechRecognitionPipeline:
@@ -147,15 +174,21 @@ def custom_transliterate(s: str) -> str:
     return unidecode.unidecode(s)
 
 
-def speak_tts(text: str, tts: TTS) -> None:
+def speak_tts(text: str, tts: TTS) -> float:
     text = text.replace(": ", ". ")
-    text = custom_transliterate(text)
-    now = time.time()
-    tts.tts_to_file(text=text, file_path="output.wav")
+    # text = custom_transliterate(text)
 
+    now = time.time()
+    # tts.tts_to_file(text=text, file_path="output.wav")
+    wav_out = tts.tts(text=text)
     print(f"Time: {time.time() - now}")
 
-    playsound.playsound("output.wav", True)
+    sample_rate = 22_000
+    sounddevice.play(wav_out, 22_000, blocking=False)
+
+    # playsound.playsound("output.wav", True)
+
+    return len(wav_out) / sample_rate
 
 
 def get_tts_model() -> TTS:
@@ -184,9 +217,11 @@ def main() -> None:
 
     i = 0
     summary = ""
+    ai_finishes = -1.
     while True:
-        audio_data = recorder.record_audio()
-        recorder.save_to_file(audio_data, f"output{i}.wav")
+        sounddevice._initialize()
+        audio_data, is_pissed = recorder.record_audio(ai_finishes)
+        # recorder.save_to_file(audio_data, f"output{i}.wav")
 
         text = transcribe(audio_data, whisper_model)
         print(f"in: {text}")
@@ -194,20 +229,72 @@ def main() -> None:
         # when there's a reference tro sth the user sees, respond only "look".
         # when user input contains a section "<imageContent>, respond as if you saw whatever is described in that section.
         instruction = text + (
-            "Respond like a snarky, condescending, mansplaining know-it-all. Interrupt the user by starting with \"Yes yes yes...\" or other "
-            "contemptuous language. Use the same language as the user.")
+            "Respond like a snarky, condescending, mansplaining know-it-all. "
+            "Start by contemptuously interrupting the user. Answer in two sentences only. "
+            "IMPORTANT: Use their language.")
 
-        # response = respond(instruction, model="gpt-3.5-turbo", data=None, recap=summary, temperature=.5)
-        #response = Response(output="Yes yes yes...", summary="Yes yes yes...")
-
-        #print(f"out: {response.output}")
-        #summary = response.summary
-        #speak_tts(response.output, tts_model)
+        response, summary = process_response(instruction, summary)
+        print(f"out: {response}")
+        # duration = speak_tts(response, tts_model)
+        # ai_finishes = time.time() + duration
+        ai_finishes = time.time()
         i += 1
+
+
+def talk(generator: Generator[str, None, any]) -> tuple[str, str]:
+    response = list()
+    return_value = ""
+
+    def _g() -> Generator[str, None, any]:
+        nonlocal return_value, response
+        while True:
+            try:
+                next_item = next(generator)
+                response.append(next_item)
+                yield next_item
+
+            except StopIteration as e:
+                return_value = e.value
+                break
+
+    audio_stream = generate(
+        text=_g(),
+        voice="Patrick",
+        model="eleven_multilingual_v1",
+        stream=True
+    )
+    stream(audio_stream)
+
+    return "".join(response), return_value
+
+
+def process_response(instruction: str, summary: str) -> tuple[str, str]:
+    chunks = respond_stream(instruction, recap=summary, model="gpt-3.5-turbo", temperature=.5)
+    response, summary = talk(chunks)
+
+    """
+    response_chunks = list()
+    try:
+        while True:
+            each_chunk = next(chunks)
+            response_chunks.append(each_chunk)
+            print(each_chunk, end="")
+
+    except StopIteration as e:
+        summary = e.value
+    response = "".join(response_chunks)
+    """
+
+    return response, summary
 
 
 if __name__ == "__main__":
     warnings.filterwarnings('error', category=RuntimeWarning)
     numpy.seterr(all="warn")
+    with open("login_info.json", mode="r") as file:
+        login_info = json.load(file)
+
+    set_api_key(login_info["elevenlabs_api"])
+    # voices = voices()
     assert(torch.cuda.is_available())
     main()
