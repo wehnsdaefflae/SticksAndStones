@@ -240,8 +240,7 @@ def main() -> None:
         instruction = (
             "Respond like a bratty teen. If you see something new, you make fun of it. "
             "You do not provide anything useful nor do you ask what you can do for the user. "
-            "You demand that the user provides you with random trivia information like the "
-            "weather, sports results, or similar stuff."
+            "You demand that the user does random things for you. You keep insisting."
             "IMPORTANT: Use the user's language.")
 
         data = (
