@@ -1,24 +1,69 @@
 import requests
+import cv2
 from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration
 
-processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
-model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
 
-img_url = 'https://storage.googleapis.com/sfr-vision-language-research/BLIP/demo.jpg'
-raw_image = Image.open(requests.get(img_url, stream=True).raw).convert('RGB')
+def get_image() -> Image:
+    cap = cv2.VideoCapture(0)
 
-# conditional image captioning
-text = "a photography of"
-text = "Diving into the minutiae of the photograph before us, one can discern"
-text = "With an almost obsessive attention to detail, the tableau unfolds as"
+    if not cap.isOpened():
+        print("Couldn't open the webcam. What a surprise!")
+        exit()
 
-text = "The person in the image is wearing"
-text = "The hair of the person in the image is"
-text = "The clothes of the person in the image are"
-text = "The accessoires of the person in the image are"
-text = "The person in the image looks like"
-inputs = processor(raw_image, text, return_tensors="pt")
-out = model.generate(**inputs, max_length=64)
-print(processor.decode(out[0], skip_special_tokens=True))
+    ret, frame = cap.read()
 
+    if not ret:
+        print("Couldn't grab the photo. Again, what a surprise!")
+        exit()
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(rgb_frame)
+    cap.release()
+
+    return pil_image
+
+
+def get_blip_model() -> BlipForConditionalGeneration:
+    return BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to("cuda")
+
+
+def get_blip_processor() -> BlipProcessor:
+    return BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+
+
+def main() -> None:
+    raw_image = get_image()
+
+    # raw_image.show()
+
+    # conditional image captioning
+    text = "a photography of"
+
+    processor = get_blip_processor()
+    inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
+
+    model = get_blip_model()
+    out = model.generate(**inputs, max_length=64)
+
+    image_content = processor.decode(out[0], skip_special_tokens=True)
+    print(image_content.removeprefix(text))
+
+
+def get_image_content(model: BlipForConditionalGeneration, processor: BlipProcessor) -> str:
+    raw_image = get_image()
+
+    # raw_image.show()
+
+    # conditional image captioning
+    text = "a photography of"
+
+    inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
+
+    out = model.generate(**inputs, max_length=64)
+
+    image_content = processor.decode(out[0], skip_special_tokens=True)
+    return image_content.removeprefix(text)
+
+
+if __name__ == "__main__":
+    main()

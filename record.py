@@ -1,4 +1,5 @@
 import json
+import random
 import time
 import warnings
 from contextlib import contextmanager
@@ -19,7 +20,8 @@ from transformers import pipeline
 
 from transformers.pipelines.automatic_speech_recognition import AutomaticSpeechRecognitionPipeline
 
-from llm_answers import respond, respond_stream
+from blip import get_blip_model, get_blip_processor, get_image_content
+from llm_answers import respond, respond_stream, make_element
 
 
 class Recorder:
@@ -211,7 +213,12 @@ def main() -> None:
 
     print("Hoisting models...")
     whisper_model = get_whisper_model()
-    tts_model = get_tts_model()
+    # tts_model = get_tts_model()
+    blip_model = get_blip_model()
+    blip_processor = get_blip_processor()
+
+    voice = random.choice(voices())
+    print(f"Using voice {voice}")
 
     recorder = Recorder()
 
@@ -223,21 +230,31 @@ def main() -> None:
         audio_data, is_pissed = recorder.record_audio(ai_finishes)
         # recorder.save_to_file(audio_data, f"output{i}.wav")
 
+        image_content = get_image_content(blip_model, blip_processor)
+
         text = transcribe(audio_data, whisper_model)
         print(f"in: {text}")
 
         # when there's a reference tro sth the user sees, respond only "look".
         # when user input contains a section "<imageContent>, respond as if you saw whatever is described in that section.
-        instruction = text + (
-            "Respond like a snarky, condescending, mansplaining know-it-all. "
-            "Start by contemptuously interrupting the user. Answer in two sentences only. "
-            "IMPORTANT: Use their language.")
+        instruction = (
+            "Respond like a bratty teen. If you see something new, you make fun of it. "
+            "You do not provide anything useful nor do you ask what you can do for the user. "
+            "You demand that the user provides you with random trivia information like the "
+            "weather, sports results, or similar stuff."
+            "IMPORTANT: Use the user's language.")
 
-        response, summary = process_response(instruction, summary)
+        data = (
+            make_element(image_content, "youSee") +
+            make_element(text, "userSays")
+        )
+
+        response, summary = process_response(instruction, summary, data=data, model="gpt-4")
         print(f"out: {response}")
         # duration = speak_tts(response, tts_model)
         # ai_finishes = time.time() + duration
         ai_finishes = time.time()
+
         i += 1
 
 
@@ -257,6 +274,8 @@ def talk(generator: Generator[str, None, any]) -> tuple[str, str]:
                 return_value = e.value
                 break
 
+
+
     audio_stream = generate(
         text=_g(),
         voice="Patrick",
@@ -268,23 +287,9 @@ def talk(generator: Generator[str, None, any]) -> tuple[str, str]:
     return "".join(response), return_value
 
 
-def process_response(instruction: str, summary: str) -> tuple[str, str]:
-    chunks = respond_stream(instruction, recap=summary, model="gpt-3.5-turbo", temperature=.5)
+def process_response(instruction: str, summary: str, data: str | None = None, model: str ="gpt-3.5-turbo") -> tuple[str, str]:
+    chunks = respond_stream(instruction, data=data, recap=summary, model=model, temperature=.5)
     response, summary = talk(chunks)
-
-    """
-    response_chunks = list()
-    try:
-        while True:
-            each_chunk = next(chunks)
-            response_chunks.append(each_chunk)
-            print(each_chunk, end="")
-
-    except StopIteration as e:
-        summary = e.value
-    response = "".join(response_chunks)
-    """
-
     return response, summary
 
 
