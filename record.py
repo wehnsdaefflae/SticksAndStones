@@ -1,4 +1,6 @@
 import time
+import warnings
+from contextlib import contextmanager
 
 import playsound
 import pyaudio
@@ -9,69 +11,101 @@ import torch
 import unidecode
 from TTS.api import TTS
 
-from llm_answers import respond
 from transformers import pipeline
 
 from transformers.pipelines.automatic_speech_recognition import AutomaticSpeechRecognitionPipeline
 
-
-# Parameters
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
-RATE = 16_000
-CHUNK = int(RATE * .5)  # seconds
-SILENCE_THRESHOLD = 1_000  # Experiment with this value
+from llm_answers import respond
 
 
-def start_recording() -> pyaudio.Stream:
-    audio = pyaudio.PyAudio()
-    stream = audio.open(
-        format=FORMAT, channels=CHANNELS, rate=RATE,
-        input=True, frames_per_buffer=CHUNK
-    )
-    return stream
+class Recorder:
+    def __init__(self):
+        # Parameters
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 16_000
+        segment_length_silent = .5  # seconds
+        self.chunk_silent = int(self.rate * segment_length_silent)
+        segment_length_talking = 2  # seconds
+        self.chunk_talking = int(self.rate * segment_length_talking)
+        self.ambient_db = 100  # max value, decreases
 
+    @contextmanager
+    def start_recording(self) -> pyaudio.Stream:
+        audio = pyaudio.PyAudio()
+        stream = audio.open(
+            format=self.format, channels=self.channels, rate=self.rate,
+            input=True,
+            # frames_per_buffer=self.chunk
+        )
+        try:
+            yield stream
 
-def is_silent(data: numpy.ndarray) -> bool:
-    value = numpy.percentile(numpy.abs(data), 95.)
-    print(value)
-    return value < SILENCE_THRESHOLD
+        finally:
+            stream.stop_stream()
+            stream.close()
+            audio.terminate()
 
+    def get_loudness(self, data: numpy.ndarray) -> float:
+        value = numpy.percentile(numpy.abs(data), 95.)  # numpy.sqrt(numpy.mean(data ** 2))
+        if value == 0:  # avoid log(0)
+            return 0.  # or return a very small value
+        return 10. * numpy.log10(value)
 
-def save_to_file(all_frames: numpy.ndarray, filename: str = "output.wav") -> None:
-    with wave.open(filename, mode="wb") as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(pyaudio.PyAudio().get_sample_size(FORMAT))
-        wf.setframerate(RATE)
-        wf.writeframes(all_frames.tobytes())
-    print(f"Saved to {filename}")
+    def update_threshold(self, value: float) -> None:
+        self.ambient_db = self.ambient_db * .9 + value * .1
 
+    def is_talking(self, value: float, is_already_talking: bool = False) -> bool:
+        if is_already_talking:
+            return value >= self.ambient_db * 1.1
+        return value >= self.ambient_db * 1.3
 
-def record_audio() -> numpy.ndarray:
-    current_frames = list[numpy.ndarray]()
+    def save_to_file(self, all_frames: numpy.ndarray, filename: str = "output.wav") -> None:
+        with wave.open(filename, mode="wb") as wf:
+            wf.setnchannels(self.channels)
+            wf.setsampwidth(pyaudio.PyAudio().get_sample_size(self.format))
+            wf.setframerate(self.rate)
+            wf.writeframes(all_frames.tobytes())
+        print(f"Saved to {filename}")
 
-    is_listening = False
-    stream = start_recording()
-    while True:
-        data = stream.read(CHUNK)
-        amplitude = numpy.frombuffer(data, dtype=numpy.int16)
+    def record_audio(self) -> numpy.ndarray:
+        current_frames = list[numpy.ndarray]()
+        is_listening = False
+        last_amplitude = None
 
-        if is_silent(amplitude):
-            if is_listening:
-                current_frames.append(amplitude)
-                break
+        with self.start_recording() as stream:
+            while True:
+                dynamic_chunk = self.chunk_talking if is_listening else self.chunk_silent
 
-        else:
-            if not is_listening:
-                is_listening = True
+                data = stream.read(dynamic_chunk)
+                amplitude = numpy.frombuffer(data, dtype=numpy.int16)
+                loudness = self.get_loudness(amplitude)
 
-            current_frames.append(amplitude)
+                print(f"Loudness: {loudness:.0f}, Threshold: {self.ambient_db:.0f}")
 
-    stream.stop_stream()
-    stream.close()
-    stream._parent.terminate()
+                if self.is_talking(loudness, is_already_talking=is_listening):
+                    if not is_listening:
+                        print("STARTED LISTENING")
+                        if last_amplitude is not None:
+                            current_frames.append(last_amplitude)
 
-    return numpy.concatenate(current_frames, axis=0)
+                        is_listening = True
+
+                    current_frames.append(amplitude)
+
+                else:
+                    self.update_threshold(loudness)
+                    if is_listening and 0 < len(current_frames):
+                        print("STOPPED LISTENING")
+                        break
+
+                last_amplitude = amplitude
+
+        stream.stop_stream()
+        stream.close()
+        stream._parent.terminate()
+
+        return numpy.concatenate(current_frames, axis=0)
 
 
 def get_whisper_model() -> AutomaticSpeechRecognitionPipeline:
@@ -146,21 +180,34 @@ def main() -> None:
     whisper_model = get_whisper_model()
     tts_model = get_tts_model()
 
+    recorder = Recorder()
+
     i = 0
     summary = ""
     while True:
-        audio_data = record_audio()
-        save_to_file(audio_data, f"output{i}.wav")
+        audio_data = recorder.record_audio()
+        recorder.save_to_file(audio_data, f"output{i}.wav")
+
         text = transcribe(audio_data, whisper_model)
         print(f"in: {text}")
-        instruction = text + " Respond in the user's language and in a snarky and condescending way."
-        response = respond(instruction, model="gpt-3.5-turbo", data=None, recap=summary, temperature=.5)
-        print(f"out: {response.output}")
-        summary = response.summary
-        speak_tts(response.output, tts_model)
+
+        # when there's a reference tro sth the user sees, respond only "look".
+        # when user input contains a section "<imageContent>, respond as if you saw whatever is described in that section.
+        instruction = text + (
+            "Respond like a snarky, condescending, mansplaining know-it-all. Interrupt the user by starting with \"Yes yes yes...\" or other "
+            "contemptuous language. Use the same language as the user.")
+
+        # response = respond(instruction, model="gpt-3.5-turbo", data=None, recap=summary, temperature=.5)
+        #response = Response(output="Yes yes yes...", summary="Yes yes yes...")
+
+        #print(f"out: {response.output}")
+        #summary = response.summary
+        #speak_tts(response.output, tts_model)
         i += 1
 
 
 if __name__ == "__main__":
-    print(torch.cuda.is_available())
+    warnings.filterwarnings('error', category=RuntimeWarning)
+    numpy.seterr(all="warn")
+    assert(torch.cuda.is_available())
     main()

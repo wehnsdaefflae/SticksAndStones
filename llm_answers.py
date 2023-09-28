@@ -88,7 +88,7 @@ def indent(text: str, indent_str: str = "    ") -> str:
 
 
 @dataclass(frozen=True)
-class Response:
+class ChatResponse:
     output: str
     summary: str
 
@@ -204,39 +204,28 @@ def _response_prompt(
     prompt = (
             recap_element +
             data_element +
-            instruction.rstrip() + f" (IMPORTANT: Do not imitate the XML syntax from the `<{_recap_tag}>` and `<{_data_tag}>` tag.)"
+            instruction.rstrip() + f" (IMPORTANT: Do not imitate the XML syntax from the `<{_recap_tag}>` and `<{_data_tag}>` tag, if present.)"
     )
 
     return prompt
 
 
-def respond(
-        instruction: str, *args: any,
-        data: str | None = None,
-        recap: str | None = None,
-        ratio_instruction: float = .1,
-        ratio_recap: float = .3,
-        ratio_data: float = .3,
-        ratio_response: float = .3,
-        _margin: float = .1,
-        _recap_tag: str = "ConversationLog",
-        _summary_tag: str = "ConversationSummary",
-        _data_tag: str = "AdditionalData",
-        **kwargs: any) -> Response:
+def _get_pruned_message(
+        instruction: str, data: str, recap: str,
+        ratio_instruction: float, ratio_data: float, ratio_recap: float, ratio_response: float,
+        data_tag: str, recap_tag: str, summary_tag: str,
+        margin: float,
+        args: tuple[any, ...], kwargs: dict[str, any]) -> list[dict[str, str]]:
 
     ratio_recap = 0. if recap is None else ratio_recap
     ratio_data = 0. if data is None else ratio_data
-
     sum_ratios = ratio_instruction + ratio_recap + ratio_data + ratio_response
     ratio_response_target = ratio_response / sum_ratios
-
     model_name = kwargs["model"]
     max_tokens = get_max_tokens(model_name)
-
-    prompt = _response_prompt(instruction, recap, data, _recap_tag, _data_tag)
+    prompt = _response_prompt(instruction, recap, data, recap_tag, data_tag)
     messages = [{"role": "user", "content": prompt}]
-    len_tokenized_prompt = get_token_len(messages, model_name) * (1. + _margin)
-
+    len_tokenized_prompt = get_token_len(messages, model_name) * (1. + margin)
     sum_input_ratios = ratio_instruction + ratio_recap + ratio_data
     while ratio_response_target < len_tokenized_prompt / max_tokens:
         ratio_instruction_is = len(instruction) / len_tokenized_prompt
@@ -258,24 +247,115 @@ def respond(
         else:
             focus_conversation = "Be very concise but preserve literal information and conversational character."
             recap_text = summarize(recap, *args, additional_instruction=focus_conversation, **kwargs)
-            recap = make_element(recap_text, _summary_tag)
+            recap = make_element(recap_text, summary_tag)
 
-        prompt = _response_prompt(instruction, recap, data, _recap_tag, _data_tag)
+        prompt = _response_prompt(instruction, recap, data, recap_tag, data_tag)
         messages = [{"role": "user", "content": prompt}]
-        len_tokenized_prompt = get_token_len(messages, model_name) * (1. + _margin)
+        len_tokenized_prompt = get_token_len(messages, model_name) * (1. + margin)
+
+    return messages
+
+
+def _make_recap(instruction: str, response: str, data: str | None = None, recap: str | None = None, data_tag: str = "AdditionalData") -> str:
+    recap = (
+            (f"" if recap is None else recap) +
+            make_element(
+                (f"" if data is None else make_element(data.rstrip(), data_tag)) +
+                make_element(instruction.rstrip(), "Instruction"),
+                "UserRequest") +
+            make_element(response.rstrip(), "AssistantResponse")
+    )
+    return recap
+
+
+def respond(
+        instruction: str, *args: any,
+        data: str | None = None,
+        recap: str | None = None,
+        ratio_instruction: float = .1,
+        ratio_recap: float = .3,
+        ratio_data: float = .3,
+        ratio_response: float = .3,
+        _margin: float = .1,
+        _recap_tag: str = "ConversationLog",
+        _summary_tag: str = "ConversationSummary",
+        _data_tag: str = "AdditionalData",
+        **kwargs: any) -> ChatResponse:
+
+    messages = _get_pruned_message(
+        instruction, data, recap,
+        ratio_instruction, ratio_data, ratio_recap, ratio_response,
+        _data_tag, _recap_tag, _summary_tag, _margin, args, kwargs)
 
     openai.api_key_path = "openai_api_key.txt"
+
     response_message = openai.ChatCompletion.create(*args, messages=messages, **kwargs)
     first_choice, = response_message.choices
     first_message = first_choice.message
-    output = first_message.content
 
-    updated_recap_content = (
-            (f"" if recap is None else recap) +
-            make_element(
-                (f"" if data is None else make_element(data.rstrip(), _data_tag)) +
-                make_element(instruction.rstrip(), "Instruction"),
-                "UserRequest") +
-            make_element(output.rstrip(), "AssistantResponse")
-    )
-    return Response(output, updated_recap_content)
+    output = first_message.content
+    updated_recap_content = _make_recap(instruction, output, data, recap, _data_tag)
+    return ChatResponse(output, updated_recap_content)
+
+
+def respond_stream(
+        instruction: str, *args: any,
+        data: str | None = None,
+        recap: str | None = None,
+        ratio_instruction: float = .1,
+        ratio_recap: float = .3,
+        ratio_data: float = .3,
+        ratio_response: float = .3,
+        _margin: float = .1,
+        _recap_tag: str = "ConversationLog",
+        _summary_tag: str = "ConversationSummary",
+        _data_tag: str = "AdditionalData",
+        **kwargs: any) -> Generator[str, None, str]:
+
+    messages = _get_pruned_message(
+        instruction, data, recap,
+        ratio_instruction, ratio_data, ratio_recap, ratio_response,
+        _data_tag, _recap_tag, _summary_tag, _margin, args, kwargs)
+
+    openai.api_key_path = "openai_api_key.txt"
+
+    full_output = list()
+    for chunk in openai.ChatCompletion.create(*args, messages=messages, stream=True, **kwargs):
+        content = chunk["choices"][0].get("delta", {}).get("content")
+        if content is not None:
+            full_output.append(content)
+            yield content  # Yielding the content for each chunk
+
+    output = "".join(full_output)
+    recap = _make_recap(instruction, output, data, recap, _data_tag)
+    return recap
+
+
+def default() -> None:
+    response = respond(
+        "Tell me about your day.",
+        model="gpt-3.5-turbo")
+
+    print(response)
+
+
+def stream() -> None:
+    chunks = respond_stream("Tell me about your day.", recap="", model="gpt-3.5-turbo")
+    try:
+        while True:
+            each_chunk = next(chunks)
+            print(each_chunk, end="")
+
+    except StopIteration as e:
+        final_recap = e.value
+
+        print(final_recap)
+
+
+def main() -> None:
+    # default()
+    stream()
+
+
+if __name__ == '__main__':
+    main()

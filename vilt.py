@@ -6,7 +6,7 @@ from PIL import Image
 
 import elevenlabs
 
-from llm_answers import make_element, respond, Response
+from llm_answers import make_element, respond, ChatResponse
 
 
 def ask(question: str) -> str:
@@ -33,7 +33,7 @@ def contains_any(response: str, terms: list) -> bool:
     return any(term in response for term in terms)
 
 
-def snarky_description(question: str, answer: str, previous: str) -> Response:
+def snarky_description(question: str, answer: str, previous: str) -> ChatResponse:
     data = (
         make_element(previous, "PreviousComment") +
         make_element(question, "Question") +
