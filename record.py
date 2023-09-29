@@ -263,10 +263,13 @@ class Snarky:
 
         return "".join(response), return_value
 
-    def say(self, instruction: str, image_content: str | None = None) -> None:
-        element = make_element(image_content, "youSee")
+    def say(self, instruction: str, data: str | None = None, image_content: str | None = None) -> None:
+        if data is None:
+            data = ""
+
+        data += make_element(image_content, "youSee")
         model = "gpt-3.5-turbo" if self.cheap else "gpt-4"
-        chunks = respond_stream(instruction, data=element, recap=self.summary, model=model, temperature=.5)
+        chunks = respond_stream(instruction, data=data, recap=self.summary, model=model, temperature=.5)
         if self.cheap:
             response_chunks = list()
             while True:
@@ -318,7 +321,12 @@ async def main() -> None:
                     try:
                         user_response, image_content = snarky.listen()
                         print(f"Victim: {user_response}, image content: {image_content}")
-                        instruction = f"The person says: \"{user_response}\". Respond critically in the same language"
+                        data = make_element(user_response, "personSays")
+                        instruction = (
+                            "Pick out particular aspects from what the person said. "
+                            "Explicitly contest the truthfulness of these aspects. "
+                            "Respond in the same language."
+                        )
 
                         if j < 4:
                             instruction += "."
@@ -328,8 +336,12 @@ async def main() -> None:
 
                     except TookTooLongException:
                         image = snarky.get_image()
+                        data = None
                         if snarky.is_person_in_image(image):
-                            instruction = "Use the same language as before to exclaim that you can see them. They can stop ignoring you."
+                            instruction = (
+                                "Use the same language as before to exclaim that you can see them. That they can stop ignoring you. "
+                                "Address them directly. Ask them to come over. "
+                            )
 
                             if j < 4:
                                 instruction += ". Rephrase your initial inquiry more impolitely."
@@ -349,7 +361,7 @@ async def main() -> None:
                             )
                             break
 
-                    snarky.say(instruction, image_content=image_content)
+                    snarky.say(instruction, image_content=image_content, data=data)
                 break
 
             print("Person is not close to camera.")
