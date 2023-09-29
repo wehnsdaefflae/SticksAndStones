@@ -317,8 +317,6 @@ def respond_stream(
         ratio_instruction, ratio_data, ratio_recap, ratio_response,
         _data_tag, _recap_tag, _summary_tag, _margin, args, kwargs)
 
-    openai.api_key_path = "openai_api_key.txt"
-
     full_output = list()
     for chunk in openai.ChatCompletion.create(*args, messages=messages, stream=True, **kwargs):
         content = chunk["choices"][0].get("delta", {}).get("content")

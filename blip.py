@@ -1,7 +1,7 @@
 import requests
 import cv2
 from PIL import Image
-from transformers import BlipProcessor, BlipForConditionalGeneration
+from transformers import BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering, AutoProcessor
 
 
 def get_image() -> Image:
@@ -23,46 +23,44 @@ def get_image() -> Image:
     return pil_image
 
 
-def get_blip_model() -> BlipForConditionalGeneration:
+def get_blip_conditional_model() -> BlipForConditionalGeneration:
     return BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to("cuda")
 
 
-def get_blip_processor() -> BlipProcessor:
+def get_blip_qna_model() -> BlipForConditionalGeneration:
+    return BlipForQuestionAnswering.from_pretrained("Salesforce/blip-image-captioning-large").to("cuda")
+
+
+def get_blip_conditional_processor() -> BlipProcessor:
     return BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
 
 
-def main() -> None:
-    raw_image = get_image()
+def get_blip_qna_processor() -> BlipProcessor:
+    return AutoProcessor.from_pretrained("Salesforce/blip-vqa-base")
 
-    # raw_image.show()
 
-    # conditional image captioning
+def get_image_content(image: Image, model: BlipForConditionalGeneration, processor: BlipProcessor) -> str:
     text = "a photography of"
 
-    processor = get_blip_processor()
-    inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
-
-    model = get_blip_model()
-    out = model.generate(**inputs, max_length=64)
-
-    image_content = processor.decode(out[0], skip_special_tokens=True)
-    print(image_content.removeprefix(text))
-
-
-def get_image_content(model: BlipForConditionalGeneration, processor: BlipProcessor) -> str:
-    raw_image = get_image()
-
-    # raw_image.show()
-
-    # conditional image captioning
-    text = "a photography of"
-
-    inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
+    inputs = processor(images=image, text=text, return_tensors="pt").to("cuda")
 
     out = model.generate(**inputs, max_length=64)
 
     image_content = processor.decode(out[0], skip_special_tokens=True)
     return image_content.removeprefix(text)
+
+
+def main() -> None:
+    raw_image = get_image()
+
+    raw_image.show()
+
+    processor = get_blip_conditional_processor()
+    model = get_blip_conditional_model()
+
+    image_content = get_image_content(raw_image, model, processor)
+
+    print(image_content)
 
 
 if __name__ == "__main__":

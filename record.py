@@ -1,31 +1,36 @@
+import asyncio
 import json
 import random
 import time
-import warnings
 from contextlib import contextmanager
 from typing import Generator
 
+import cv2
+import openai
 from elevenlabs import set_api_key, generate, stream, voices
-import playsound
 import pyaudio
 import numpy
 import wave
 
 import sounddevice
 import torch
-import unidecode
 from TTS.api import TTS
 
-from transformers import pipeline
+from transformers import pipeline, ViltForQuestionAnswering, ViltProcessor, BlipForConditionalGeneration, BlipProcessor
 
-from transformers.pipelines.automatic_speech_recognition import AutomaticSpeechRecognitionPipeline
+from llm_answers import respond_stream, make_element
+from vilt_refined import yes_no_question, ask_model
+from PIL import Image
 
-from blip import get_blip_model, get_blip_processor, get_image_content
-from llm_answers import respond, respond_stream, make_element
+
+class TookTooLongException(Exception):
+    pass
 
 
-class Recorder:
-    def __init__(self):
+class Snarky:
+    def __init__(self, cheap: bool = True):
+        assert torch.cuda.is_available()
+
         # Parameters
         self.format = pyaudio.paInt16
         self.channels = 1
@@ -35,6 +40,32 @@ class Recorder:
         segment_length_talking = 1  # seconds
         self.chunk_talking = int(self.rate * segment_length_talking)
         self.ambient_loudness = -1.  # max value, decreases
+
+        self.voice = random.choice(voices())
+
+        torch.cuda.empty_cache()
+
+        print("Hoisting models.")
+        self.vilt_model = ViltForQuestionAnswering.from_pretrained("dandelin/vilt-b32-finetuned-vqa").to("cuda")
+        self.vilt_processor = ViltProcessor.from_pretrained("dandelin/vilt-b32-finetuned-vqa")
+        self.blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to("cuda")
+        self.blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+        self.whisper_model = pipeline("automatic-speech-recognition", model="openai/whisper-small", chunk_length_s=30, device="cuda:0")
+        self.tts_model = TTS("tts_models/de/thorsten/tacotron2-DDC").to("cuda")
+
+        openai.api_key_path = "openai_api_key.txt"
+        with open("login_info.json", mode="r") as file:
+            info = json.load(file)
+            set_api_key(info["elevenlabs_api"])
+
+        self.summary = ""
+
+        self.cheap = cheap
+
+    def reset(self) -> None:
+        self.voice = random.choice(voices())
+        # self.ambient_loudness = -1.
+        # self.summary = ""
 
     @contextmanager
     def start_recording(self) -> pyaudio.Stream:
@@ -66,16 +97,12 @@ class Recorder:
         else:
             self.ambient_loudness = self.ambient_loudness * .9 + value * .1
 
-    def is_talking(self, value: float, is_already_talking: bool = False, ai_is_talking: bool = False) -> bool:
+    def is_talking(self, value: float, is_already_talking: bool = False) -> bool:
         if self.ambient_loudness < 0.:
             return False
 
         if is_already_talking:
             return value >= self.ambient_loudness * 1.1
-
-        if ai_is_talking:
-            # return value >= self.ambient_loudness * 1.3
-            return False
 
         return value >= self.ambient_loudness * 1.2
 
@@ -87,17 +114,15 @@ class Recorder:
             wf.writeframes(all_frames.tobytes())
         print(f"Saved to {filename}")
 
-    def record_audio(self, ai_finishes_at: float) -> tuple[numpy.ndarray, bool]:
+    def record_audio(self, patience_seconds: int = 10) -> numpy.ndarray:
         current_frames = list[numpy.ndarray]()
         is_listening = False
         last_amplitude = None
 
-        ai_is_pissed = False
-
         with self.start_recording() as stream:
-            while True:
-                ai_is_talking = time.time() < ai_finishes_at
+            started_listening_at = time.time()
 
+            while True:
                 dynamic_chunk = self.chunk_talking if is_listening else self.chunk_silent
 
                 data = stream.read(dynamic_chunk)
@@ -106,13 +131,8 @@ class Recorder:
 
                 print(f"Loudness: {loudness:.0f}, Threshold: {self.ambient_loudness:.0f}")
 
-                if self.is_talking(loudness, is_already_talking=is_listening, ai_is_talking=ai_is_talking):
+                if self.is_talking(loudness, is_already_talking=is_listening):
                     if not is_listening:
-                        if ai_is_talking:
-                            sounddevice.stop()
-                            print("AI IS PISSED")
-                            ai_is_pissed = True
-
                         print("STARTED LISTENING")
 
                         if last_amplitude is not None:
@@ -122,11 +142,16 @@ class Recorder:
 
                     current_frames.append(amplitude)
 
-                elif not ai_is_talking:
+                else:
                     self.update_threshold(loudness)
                     if is_listening and 0 < len(current_frames):
                         print("STOPPED LISTENING")
+                        sounddevice.stop()
                         break
+
+                    if patience_seconds < time.time() - started_listening_at:
+                        print("Person not talking.")
+                        raise TookTooLongException()
 
                 last_amplitude = amplitude
 
@@ -134,169 +159,211 @@ class Recorder:
         stream.close()
         stream._parent.terminate()
 
-        return numpy.concatenate(current_frames, axis=0), ai_is_pissed
+        return numpy.concatenate(current_frames, axis=0)
 
+    def get_image(self) -> Image:
+        cap = cv2.VideoCapture(0)
 
-def get_whisper_model() -> AutomaticSpeechRecognitionPipeline:
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        if not cap.isOpened():
+            print("Couldn't open the webcam. What a surprise!")
+            exit()
 
-    pipe = pipeline(
-        "automatic-speech-recognition",
-        model="openai/whisper-small",
-        chunk_length_s=30,
-        device=device,
-    )
+        ret, frame = cap.read()
 
-    return pipe
+        if not ret:
+            print("Couldn't grab the photo. Again, what a surprise!")
+            exit()
 
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_frame)
+        cap.release()
 
-def transcribe(audio: numpy.ndarray, pipe: AutomaticSpeechRecognitionPipeline) -> str:
-    sample = {"path": "/dummy/path/file.wav", "array": audio / 32_768., "sampling_rate": 16_000}
-    prediction = pipe(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe", "language": "german"})["text"]
-    # prediction = pipe(sample.copy(), batch_size=8, generate_kwargs={"task": "transcribe", "language": "german"})["text"]
-    return prediction
+        return pil_image
 
+    def is_person_in_image(self, image: Image) -> bool:
+        question = "Is there a person in the image?"
+        return yes_no_question(image, question, self.vilt_processor, self.vilt_model)
 
-def custom_transliterate(s: str) -> str:
-    custom_mappings = {
-        'ß': 'ss',
-        'ä': 'ae',
-        'ö': 'oe',
-        'ü': 'ue',
-        'Ä': 'Ae',
-        'Ö': 'Oe',
-        'Ü': 'Ue',
-    }
+    def is_person_close_to_camera(self, image: Image) -> bool:
+        question = "Is the person close to the camera?"
+        return yes_no_question(image, question, self.vilt_processor, self.vilt_model)
 
-    # Apply custom mappings
-    for original, replacement in custom_mappings.items():
-        s = s.replace(original, replacement)
+    def what_is_person_wearing(self, image: Image) -> str:
+        question = "What is the person wearing?"
+        clothes = ask_model(image, question, self.vilt_processor, self.vilt_model).lower()
 
-    # Further transliterate using unidecode
-    return unidecode.unidecode(s)
+        pieces = list()
+        for each_piece in clothes.split("and"):
+            question = f"What color is the {each_piece.strip()}?"
+            each_color = ask_model(image, question, self.vilt_processor, self.vilt_model)
+            colored_piece = f"{each_color.lower()} {each_piece.strip()}"
+            pieces.append(colored_piece)
 
+        return " and ".join(pieces)
 
-def speak_tts(text: str, tts: TTS) -> float:
-    text = text.replace(": ", ". ")
-    # text = custom_transliterate(text)
+    def get_image_content(self, image: Image) -> str:
+        text = "a photography of"
+        inputs = self.blip_processor(images=image, text=text, return_tensors="pt").to("cuda")
+        out = self.blip_model.generate(**inputs, max_length=64)
+        image_content = self.blip_processor.decode(out[0], skip_special_tokens=True)
+        return image_content.removeprefix(text)
 
-    now = time.time()
-    # tts.tts_to_file(text=text, file_path="output.wav")
-    wav_out = tts.tts(text=text)
-    print(f"Time: {time.time() - now}")
+    def transcribe(self, audio: numpy.ndarray) -> str:
+        prediction = self.whisper_model(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe", "language": "german"})["text"]
+        return prediction
 
-    sample_rate = 22_000
-    sounddevice.play(wav_out, 22_000, blocking=False)
-
-    # playsound.playsound("output.wav", True)
-
-    return len(wav_out) / sample_rate
-
-
-def get_tts_model() -> TTS:
-    # tts_models/de/thorsten/tacotron2-DCA
-    # really fast!
-
-    # tts_models/de/thorsten/vits
-    # also fast. and better!
-
-    # tts_models/de/thorsten/tacotron2-DDC
-    # super fast, super good
-
-    tts = TTS("tts_models/de/thorsten/tacotron2-DDC")
-    tts.to("cuda")
-    return tts
-
-
-def main() -> None:
-    torch.cuda.empty_cache()
-
-    print("Hoisting models...")
-    whisper_model = get_whisper_model()
-    # tts_model = get_tts_model()
-    blip_model = get_blip_model()
-    blip_processor = get_blip_processor()
-
-    voice = random.choice(voices())
-    print(f"Using voice {voice}")
-
-    recorder = Recorder()
-
-    i = 0
-    summary = ""
-    ai_finishes = -1.
-    while True:
+    def listen(self) -> tuple[str, str]:
         sounddevice._initialize()
-        audio_data, is_pissed = recorder.record_audio(ai_finishes)
+        audio_data = self.record_audio()
         # recorder.save_to_file(audio_data, f"output{i}.wav")
 
-        image_content = get_image_content(blip_model, blip_processor)
+        image = self.get_image()
+        image_content = self.get_image_content(image)
 
-        text = transcribe(audio_data, whisper_model)
-        print(f"in: {text}")
+        text = self.transcribe(audio_data)
+        return text, image_content
 
-        # when there's a reference tro sth the user sees, respond only "look".
-        # when user input contains a section "<imageContent>, respond as if you saw whatever is described in that section.
-        instruction = (
-            "Respond like a bratty teen. If you see something new, you make fun of it. "
-            "You do not provide anything useful nor do you ask what you can do for the user. "
-            "You demand that the user does random things for you. You keep insisting."
-            "IMPORTANT: Use the user's language.")
+    def speak_tts(self, text: str) -> None:
+        text = text.replace(": ", ". ")
+        # text = custom_transliterate(text)
 
-        data = (
-            make_element(image_content, "youSee") +
-            make_element(text, "userSays")
+        now = time.time()
+        # tts.tts_to_file(text=text, file_path="output.wav")
+        wav_out = self.tts_model.tts(text=text)
+        print(f"Time: {time.time() - now}")
+
+        sample_rate = 22_000
+        sounddevice.play(wav_out, sample_rate, blocking=True)
+
+        # playsound.playsound("output.wav", True)
+
+    def speak(self, generator: Generator[str, None, any]) -> tuple[str, str]:
+        response = list()
+        return_value = ""
+
+        def _g() -> Generator[str, None, any]:
+            nonlocal return_value
+            while True:
+                try:
+                    next_item = next(generator)
+                    response.append(next_item)
+                    yield next_item
+
+                except StopIteration as e:
+                    return_value = e.value
+                    break
+
+        audio_stream = generate(
+            text=_g(),
+            voice=self.voice,
+            model="eleven_multilingual_v1",
+            stream=True
         )
+        stream(audio_stream)
 
-        response, summary = process_response(instruction, summary, data=data, model="gpt-4")
-        print(f"out: {response}")
-        # duration = speak_tts(response, tts_model)
-        # ai_finishes = time.time() + duration
-        ai_finishes = time.time()
+        return "".join(response), return_value
 
-        i += 1
+    def say(self, instruction: str, image_content: str | None = None) -> None:
+        element = make_element(image_content, "youSee")
+        model = "gpt-3.5-turbo" if self.cheap else "gpt-4"
+        chunks = respond_stream(instruction, data=element, recap=self.summary, model=model, temperature=.5)
+        if self.cheap:
+            response_chunks = list()
+            while True:
+                try:
+                    each_chunk = next(chunks)
+                    response_chunks.append(each_chunk)
+
+                except StopIteration as e:
+                    self.summary = e.value
+                    break
+
+            response = "".join(response_chunks)
+            self.speak_tts(response)
+
+        else:
+            response, self.summary = self.speak(chunks)
+
+        print(f"Snarky: {response}")
 
 
-def talk(generator: Generator[str, None, any]) -> tuple[str, str]:
-    response = list()
-    return_value = ""
+async def main() -> None:
+    snarky = Snarky(cheap=True)
+    # snarky = Snarky(cheap=False)
 
-    def _g() -> Generator[str, None, any]:
-        nonlocal return_value, response
-        while True:
-            try:
-                next_item = next(generator)
-                response.append(next_item)
-                yield next_item
+    while True:
+        snarky.reset()
 
-            except StopIteration as e:
-                return_value = e.value
+        image = snarky.get_image()
+        if not snarky.is_person_in_image(image):
+            print("No person in image.")
+            continue
+
+        print("Person in image.")
+        person_description = snarky.what_is_person_wearing(image)
+        image_content = snarky.get_image_content(image)
+
+        for i in range(3):
+            if snarky.is_person_close_to_camera(image):
+                print("Person is close to camera.")
+                snarky.say(
+                    f"Address the person that you see in German. "
+                    f"Come up with a random thing a stranger in the streets might ask for. "
+                    f"Demand the person give you information on that thing. ",
+                    image_content=image_content
+                )
+
+                for j in range(5):
+                    try:
+                        user_response, image_content = snarky.listen()
+                        print(f"Victim: {user_response}, image content: {image_content}")
+                        instruction = f"The person says: \"{user_response}\". Respond critically in the same language"
+
+                        if j < 4:
+                            instruction += "."
+                        else:
+                            instruction += " and end the conversation abruptly."
+                            print("resetting...")
+
+                    except TookTooLongException:
+                        image = snarky.get_image()
+                        if snarky.is_person_in_image(image):
+                            instruction = "Use the same language as before to exclaim that you can see them. They can stop ignoring you."
+
+                            if j < 4:
+                                instruction += ". Rephrase your initial inquiry more impolitely."
+                                if j >= 1:
+                                    instruction += ". Do not repeat yourself."
+
+                            else:
+                                instruction += " End the conversation angrily."
+                                print("resetting...")
+
+                        else:
+                            print("Person left.")
+                            print("resetting...")
+                            snarky.say(
+                                f"Make a snide comment about the person wearing {person_description}. "
+                                f"Express that they are super impolite for simply leaving a conversation like that."
+                            )
+                            break
+
+                    snarky.say(instruction, image_content=image_content)
                 break
 
-    audio_stream = generate(
-        text=_g(),
-        voice="Patrick",
-        model="eleven_multilingual_v1",
-        stream=True
-    )
-    stream(audio_stream)
+            print("Person is not close to camera.")
+            snarky.say(f"Call over a person who wears {person_description} in German. Be very impatient. Do not repeat yourself.")
+            time.sleep(3)
+            image = snarky.get_image()
+            image_content = snarky.get_image_content(image)
 
-    return "".join(response), return_value
-
-
-def process_response(instruction: str, summary: str, data: str | None = None, model: str ="gpt-3.5-turbo") -> tuple[str, str]:
-    chunks = respond_stream(instruction, data=data, recap=summary, model=model, temperature=.5)
-    response, summary = talk(chunks)
-    return response, summary
+        else:
+            print("Person is not coming over.")
+            snarky.say(
+                f"Make a snarky comment in German at the person wearing {person_description} for ignoring you and exclaim that you are leaving.",
+                image_content=image_content
+            )
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings('error', category=RuntimeWarning)
-    numpy.seterr(all="warn")
-    with open("login_info.json", mode="r") as file:
-        login_info = json.load(file)
-
-    set_api_key(login_info["elevenlabs_api"])
-    # voices = voices()
-    assert(torch.cuda.is_available())
-    main()
+    asyncio.run(main())
