@@ -269,7 +269,7 @@ class Snarky:
 
         data += make_element(image_content, "youSee")
         model = "gpt-3.5-turbo" if self.cheap else "gpt-4"
-        chunks = respond_stream(instruction, data=data, recap=self.summary, model=model, temperature=.5)
+        chunks = respond_stream(instruction, data=data, recap=self.summary, model=model, temperature=.0)
         if self.cheap:
             response_chunks = list()
             while True:
@@ -291,8 +291,8 @@ class Snarky:
 
 
 async def main() -> None:
-    snarky = Snarky(cheap=True)
-    # snarky = Snarky(cheap=False)
+    # snarky = Snarky(cheap=True)
+    snarky = Snarky(cheap=False)
 
     while True:
         snarky.reset()
@@ -323,8 +323,8 @@ async def main() -> None:
                         print(f"Victim: {user_response}, image content: {image_content}")
                         data = make_element(user_response, "personSays")
                         instruction = (
-                            "Pick out particular aspects from what the person said. "
-                            "Explicitly contest the truthfulness of these aspects. "
+                            "Pick out particular aspects of what the person said. "
+                            "Explicitly doubt the truthfulness of these aspects. "
                             "Respond in the same language."
                         )
 
@@ -339,12 +339,13 @@ async def main() -> None:
                         data = None
                         if snarky.is_person_in_image(image):
                             instruction = (
-                                "Use the same language as before to exclaim that you can see them. That they can stop ignoring you. "
+                                "Use the same language as before to exclaim that you can see them. "
+                                "That they can stop ignoring you. "
                                 "Address them directly. Ask them to come over. "
                             )
 
                             if j < 4:
-                                instruction += ". Rephrase your initial inquiry more impolitely."
+                                instruction += ". Rephrase your initial request more impolitely."
                                 if j >= 1:
                                     instruction += ". Do not repeat yourself."
 
@@ -356,7 +357,7 @@ async def main() -> None:
                             print("Person left.")
                             print("resetting...")
                             snarky.say(
-                                f"Make a snide comment about the person wearing {person_description}. "
+                                f"Make a snide remark about the person wearing {person_description}. "
                                 f"Express that they are super impolite for simply leaving a conversation like that."
                             )
                             break

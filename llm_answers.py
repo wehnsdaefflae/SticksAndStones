@@ -241,7 +241,10 @@ def _get_pruned_message(
             instruction = summarize(instruction, *args, context=recap, **kwargs)
 
         elif ratio_data_delta == max_delta:
-            focus_instruction = f"Transcribe this into a more concise format. Ignore information that is not relevant to the instruction \"{instruction.strip()}\""
+            focus_instruction = (
+                f"Transcribe this into a more concise format. "
+                f"Ignore information that is not relevant to the instruction \"{instruction.strip()}\""
+            )
             data = summarize(data, *args, context=recap, additional_instructions=focus_instruction, **kwargs)
 
         else:
