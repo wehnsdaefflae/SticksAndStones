@@ -307,9 +307,10 @@ async def main() -> None:
             if snarky.is_person_close_to_camera(image):
                 print("Person is close to camera.")
                 snarky.say(
-                    f"Address the person that you see in German. "
-                    f"Come up with a random thing a stranger in the streets might ask for. "
-                    f"Demand the person give you information on that thing. ",
+                    "Address the person that you see in German. "
+                    "Come up with a random information that someone might ask their digital assistant for. "
+                    # "Come up with a random thing a stranger in the streets might ask for. "
+                    "Demand the person give you that information.",
                     image_content=image_content
                 )
 
@@ -352,7 +353,11 @@ async def main() -> None:
                 break
 
             print("Person is not close to camera.")
-            snarky.say(f"Call over a person who wears {person_description} in German. Be very impatient. Do not repeat yourself.")
+            instruction = f"Call over a person wearing {person_description} in German."
+            if i >= 2:
+                instruction += " Grow more and more impatient. Do not repeat yourself."
+
+            snarky.say(instruction, image_content=image_content)
             time.sleep(3)
             image = snarky.get_image()
             image_content = snarky.get_image_content(image)
