@@ -1,12 +1,14 @@
 import asyncio
 import json
 import random
+import threading
 import time
 from contextlib import contextmanager
 from typing import Generator
 
 import cv2
 import openai
+import pygame
 from elevenlabs import set_api_key, generate, stream, voices
 import pyaudio
 import numpy
@@ -287,7 +289,7 @@ class Snarky:
 async def call_over(image_content: str, person_description: str, snarky: Snarky) -> None:
     snarky.say(
         f"Call over a person wearing {person_description} in German. "
-        f"Do not repeat yourself.",
+        f"Don't repeat anything you've already said. ",
         image_content=image_content
     )
 
@@ -316,7 +318,7 @@ async def point_out_again(image_content: str, person_description: str, snarky: S
         f"That they can stop ignoring you. "
         f"Address them directly by their clothes: {person_description}. Ask them to come over. "
         f"Rephrase your initial request more impolitely. "
-        f"Do not repeat yourself.",
+        f"Don't repeat anything you've already said.",
         image_content=image_content
     )
 
@@ -333,6 +335,7 @@ async def point_out_goodbye(image_content: str, person_description: str, snarky:
 async def finish(data: str, image_content: str, snarky: Snarky) -> None:
     snarky.say("Pick out particular aspects of what the person said. "
                "Explicitly doubt the truthfulness of these aspects. "
+               "Don't repeat anything you've already said. "
                "End the conversation abruptly. Respond in the same language.",
                image_content=image_content, data=data)
 
@@ -340,6 +343,8 @@ async def finish(data: str, image_content: str, snarky: Snarky) -> None:
 async def pick(data: str, image_content: str, snarky: Snarky) -> None:
     snarky.say(
         "Pick out particular aspects of what the person said. "
+        "Do not literally repeat what they said. "
+        "Don't repeat anything you've already said. "
         "Explicitly doubt the truthfulness of these aspects. "
         "Respond in the same language.",
         image_content=image_content, data=data)
@@ -349,6 +354,7 @@ async def initiate(person_description: str, image_content: str, snarky: Snarky) 
     snarky.say(
         f"Address the person wearing {person_description} in German. "
         f"Come up with a random information that someone might ask their digital assistant for. "
+        f"Do not ask for the weather. "
         # f"Come up with a random thing a stranger in the streets might ask for. "
         f"Demand the person give you that information.",
         image_content=image_content
@@ -358,10 +364,9 @@ async def initiate(person_description: str, image_content: str, snarky: Snarky) 
 async def main() -> None:
     # snarky = Snarky(cheap=True)
     snarky = Snarky(cheap=False)
+    snarky.reset()
 
     while True:
-        snarky.reset()
-
         image = snarky.get_image()
         if not snarky.is_person_in_image(image):
             print("No person in image.")
@@ -383,6 +388,7 @@ async def main() -> None:
         while True:
             try:
                 audio_data = snarky.record_audio()
+
                 user_response = snarky.transcribe(audio_data)
                 print(f"User: {user_response}")
 
@@ -393,6 +399,7 @@ async def main() -> None:
                 if exchanges >= 3:
                     print("Pick at person and finish.")
                     await finish(data, image_content, snarky)
+                    snarky.reset()
                     break
 
                 print("Pick at person.")
@@ -405,11 +412,13 @@ async def main() -> None:
                 if not snarky.is_person_in_image(image):
                     print("Person left.")
                     await outraged(person_description, snarky)
+                    snarky.reset()
                     break
 
                 if took_too_long >= 3:
                     print("Call out person and leave.")
                     await point_out_goodbye(image_content, person_description, snarky)
+                    snarky.reset()
                     break
 
                 if took_too_long < 1:
