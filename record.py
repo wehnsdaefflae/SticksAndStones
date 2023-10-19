@@ -64,10 +64,21 @@ class Snarky:
 
         self.cheap = cheap
 
+        self.messages = list()
+
     def reset(self) -> None:
         self.voice = random.choice(voices())
         # self.ambient_loudness = -1.
         # self.summary = ""
+        self.messages.clear()
+        system_prompt = {
+            "role": "system",
+            "content": "You're a user asking a question to a digital assistant like Alexa, Siri, or Google Assistant. You're very sceptical of all the answers you "
+                       "get. You're also quite impolite. You see the person you're talking to in the image. The content of the image is described to you in the "
+                       "`ImageContent` XML tag. You comment on changes from one image to another. You never respond by saying that you're an AI or an assistant, "
+                       "instead you avoid the topic and always respond as if you were a human talking to a digital assistant."
+        }
+        self.messages.append(system_prompt)
 
     @contextmanager
     def start_recording(self) -> pyaudio.Stream:
@@ -233,17 +244,14 @@ class Snarky:
 
         # playsound.playsound("output.wav", True)
 
-    def speak(self, generator: Generator[str, None, any]) -> tuple[str, str]:
-        response = list()
+    def speak(self, generator: Generator[str, None, any]) -> str:
         return_value = ""
 
         def _g() -> Generator[str, None, any]:
             nonlocal return_value
             while True:
                 try:
-                    next_item = next(generator)
-                    response.append(next_item)
-                    yield next_item
+                    yield from generator
 
                 except StopIteration as e:
                     return_value = e.value
@@ -257,31 +265,43 @@ class Snarky:
         )
         stream(audio_stream)
 
-        return "".join(response), return_value
+        return return_value
 
-    def say(self, instruction: str, data: str | None = None, image_content: str | None = None) -> None:
+    def _respond(self, message: str, *args: any, **kwargs) -> Generator[str, None, str]:
+        self.messages.append({"role": "user", "content": message})
+        full_output = list()
+        for chunk in openai.ChatCompletion.create(*args, messages=self.messages, stream=True, **kwargs):
+            content = chunk["choices"][0].get("delta", dict()).get("content")
+            if content is not None:
+                full_output.append(content)
+                yield content  # Yielding the content for each chunk
+
+        output = "".join(full_output)
+        self.messages.append({"role": "assistant", "content": output})
+        while len(self.messages) >= 11:
+            self.messages.pop(1)
+        return output
+
+    def say(self, instruction: str, image_content: str, data: str | None = None) -> None:
         if data is None:
             data = ""
 
         data += make_element(image_content, "youSee")
         model = "gpt-3.5-turbo" if self.cheap else "gpt-4"
-        chunks = respond_stream(instruction, data=data, recap=self.summary, model=model, temperature=.0)
+        chunks = self._respond(instruction, model=model, temperature=.0)
         if self.cheap:
-            response_chunks = list()
             while True:
                 try:
-                    each_chunk = next(chunks)
-                    response_chunks.append(each_chunk)
+                    next(chunks)
 
                 except StopIteration as e:
-                    self.summary = e.value
+                    response = e.value
                     break
 
-            response = "".join(response_chunks)
             self.speak_tts(response)
 
         else:
-            response, self.summary = self.speak(chunks)
+            response = self.speak(chunks)
 
         print(f"Snarky: {response}")
 
@@ -359,6 +379,54 @@ async def initiate(person_description: str, image_content: str, snarky: Snarky) 
         f"Demand the person give you that information.",
         image_content=image_content
     )
+
+
+async def main_new() -> None:
+    # todo:
+    # - [ ] change it to
+    #   - [ ] system prompt
+    #           "you're the user of a digital assistant. asking questions to the assistant.
+    #           you're very sceptical of all the answers you get. you're also quite impolite.
+    #           you see the person in the image. you comment on changes from one image to the next."
+    #   - [ ] classical history
+
+    snarky = Snarky(cheap=True)
+    # calibrate audio level?
+
+    while True:
+        snarky.reset()
+
+        image = snarky.get_image()
+        if not snarky.is_person_in_image(image):
+            continue
+
+        person_description = snarky.what_is_person_wearing(image)
+        try:
+            for attempt in range(3):
+                await call_over(image_content=snarky.get_image_content(image), person_description=person_description, snarky=snarky)
+
+                image = snarky.get_image()
+                if snarky.is_person_close_to_camera(image):
+                    break
+
+                if not snarky.is_person_in_image(image):
+                    raise TookTooLongException()
+
+            else:
+                raise TookTooLongException()
+
+            user_response = "[Ask the person a question.]"
+            while True:
+                image = snarky.get_image()
+                image_content = snarky.get_image_content(image)
+                snarky.say(user_response, image_content=image_content)
+                audio_data = snarky.record_audio()
+                user_response = snarky.transcribe(audio_data)
+
+        except TookTooLongException:
+            image_content = snarky.get_image_content(image)
+            snarky.say("[Complain that the person does not interact.]", image_content=image_content)
+            continue
 
 
 async def main() -> None:
