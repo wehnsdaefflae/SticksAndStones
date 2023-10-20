@@ -1,14 +1,15 @@
 import asyncio
+import datetime
 import json
+import pathlib
 import random
-import threading
 import time
 from contextlib import contextmanager
 from typing import Generator
+from loguru import logger
 
 import cv2
 import openai
-import pygame
 from elevenlabs import set_api_key, generate, stream, voices
 import pyaudio
 import numpy
@@ -16,11 +17,10 @@ import wave
 
 import sounddevice
 import torch
-from TTS.api import TTS
 
 from transformers import pipeline, ViltForQuestionAnswering, ViltProcessor, BlipForConditionalGeneration, BlipProcessor
 
-from llm_answers import respond_stream, make_element
+from llm_answers import make_element
 from vilt_refined import yes_no_question, ask_model
 from PIL import Image
 
@@ -30,8 +30,11 @@ class TookTooLongException(Exception):
 
 
 class Snarky:
-    def __init__(self, cheap: bool = True):
+    def __init__(self):
         assert torch.cuda.is_available()
+
+        now = datetime.datetime.now()
+        self.messages_log = pathlib.Path(f"messages_{now.strftime('%Y%m%d_%H%M%S')}.jsonl")
 
         # Parameters
         self.format = pyaudio.paInt16
@@ -53,7 +56,6 @@ class Snarky:
         self.blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to("cuda")
         self.blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
         self.whisper_model = pipeline("automatic-speech-recognition", model="openai/whisper-small", chunk_length_s=30, device="cuda:0")
-        self.tts_model = TTS("tts_models/de/thorsten/tacotron2-DDC").to("cuda")
 
         openai.api_key_path = "openai_api_key.txt"
         with open("login_info.json", mode="r") as file:
@@ -62,22 +64,32 @@ class Snarky:
 
         self.summary = ""
 
-        self.cheap = cheap
-
         self.messages = list()
+
+    def _append_message_log(self, message: dict[str, str]) -> None:
+        with self.messages_log.open(mode="a") as file:
+            file.write(json.dumps(message) + "\n")
 
     def reset(self) -> None:
         self.voice = random.choice(voices())
         # self.ambient_loudness = -1.
         # self.summary = ""
         self.messages.clear()
+        instructions = (
+            "You're a user asking a question to a digital assistant like Alexa, Siri, or Google Assistant. You're very sceptical of all the answers you get. You come "
+            "up with reasons why you don't believe the information you get. You're quite impolite.\n"
+            "You start each conversation in German. After the person responded, you switch to their language.\n"
+            "You see an image of the person you're talking to. The content of the image is described to you in the `ImageContent` XML tag. From time to time, you "
+            "rudely comment on changes from one image to another.\n"
+            "You never ask what you can do for the person. Instead you expect them to be do things for you.\n"
+            "You never respond by saying that you're an AI or an assistant. If you cannot respond, you reply as if you were a human finding reasons to avoid the topic."
+        )
+
         system_prompt = {
             "role": "system",
-            "content": "You're a user asking a question to a digital assistant like Alexa, Siri, or Google Assistant. You're very sceptical of all the answers you "
-                       "get. You're also quite impolite. You see the person you're talking to in the image. The content of the image is described to you in the "
-                       "`ImageContent` XML tag. You comment on changes from one image to another. You never respond by saying that you're an AI or an assistant, "
-                       "instead you avoid the topic and always respond as if you were a human talking to a digital assistant."
+            "content": instructions
         }
+        self._append_message_log(system_prompt)
         self.messages.append(system_prompt)
 
     @contextmanager
@@ -220,7 +232,8 @@ class Snarky:
         return " and ".join(pieces)
 
     def get_image_content(self, image: Image) -> str:
-        text = "a photography of"
+        text = "the image definitely shows"
+        # text = "a photography of"
         inputs = self.blip_processor(images=image, text=text, return_tensors="pt").to("cuda")
         out = self.blip_model.generate(**inputs, max_length=64)
         image_content = self.blip_processor.decode(out[0], skip_special_tokens=True)
@@ -230,20 +243,6 @@ class Snarky:
         prediction = self.whisper_model(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe", "language": "german"})["text"]
         return prediction
 
-    def speak_tts(self, text: str) -> None:
-        text = text.replace(": ", ". ")
-        # text = custom_transliterate(text)
-
-        now = time.time()
-        # tts.tts_to_file(text=text, file_path="output.wav")
-        wav_out = self.tts_model.tts(text=text)
-        print(f"Time: {time.time() - now}")
-
-        sample_rate = 22_000
-        sounddevice.play(wav_out, sample_rate, blocking=True)
-
-        # playsound.playsound("output.wav", True)
-
     def speak(self, generator: Generator[str, None, any]) -> str:
         return_value = ""
 
@@ -251,7 +250,7 @@ class Snarky:
             nonlocal return_value
             while True:
                 try:
-                    yield from generator
+                    yield next(generator)
 
                 except StopIteration as e:
                     return_value = e.value
@@ -261,64 +260,61 @@ class Snarky:
             text=_g(),
             voice=self.voice,
             model="eleven_multilingual_v1",
-            stream=True
+            stream=True,
+            latency=3
         )
         stream(audio_stream)
 
         return return_value
 
     def _respond(self, message: str, *args: any, **kwargs) -> Generator[str, None, str]:
-        self.messages.append({"role": "user", "content": message})
+        input_message = {"role": "user", "content": message}
+        self._append_message_log(input_message)
+        self.messages.append(input_message)
+
         full_output = list()
         for chunk in openai.ChatCompletion.create(*args, messages=self.messages, stream=True, **kwargs):
             content = chunk["choices"][0].get("delta", dict()).get("content")
             if content is not None:
                 full_output.append(content)
+                print(content, end="", flush=True)
                 yield content  # Yielding the content for each chunk
 
         output = "".join(full_output)
-        self.messages.append({"role": "assistant", "content": output})
+
+        output_message = {"role": "assistant", "content": output}
+        self._append_message_log(output_message)
+        self.messages.append(output_message)
+
         while len(self.messages) >= 11:
             self.messages.pop(1)
         return output
 
-    def say(self, instruction: str, image_content: str, data: str | None = None) -> None:
-        if data is None:
-            data = ""
-
-        data += make_element(image_content, "youSee")
-        model = "gpt-3.5-turbo" if self.cheap else "gpt-4"
-        chunks = self._respond(instruction, model=model, temperature=.0)
-        if self.cheap:
-            while True:
-                try:
-                    next(chunks)
-
-                except StopIteration as e:
-                    response = e.value
-                    break
-
-            self.speak_tts(response)
-
-        else:
-            response = self.speak(chunks)
-
-        print(f"Snarky: {response}")
+    def say(self, instruction: str, image_content: str) -> str:
+        full_prompt = make_element(image_content, "ImageContent") + instruction
+        model = "gpt-4"
+        chunks = self._respond(full_prompt, model=model, temperature=.0)
+        response = self.speak(chunks)
+        return response
 
 
-async def call_over(image_content: str, person_description: str, snarky: Snarky) -> None:
+async def call_over(image_content: str, person_description: str, snarky: Snarky, attempt: int) -> None:
+    full_prompt = f"Call over the person in the image. You have a question for them. Address them by their clothing: {person_description}."
+    if attempt >= 1:
+        full_prompt += f" This is attempt number {attempt + 1}. You're growing impatient."
+
     snarky.say(
-        f"Call over a person wearing {person_description} in German. "
-        f"Don't repeat anything you've already said. ",
+        f"[{full_prompt}]",
         image_content=image_content
     )
 
 
-async def outraged(person_description: str, snarky: Snarky) -> None:
+async def outraged(image_content: str, person_description: str, snarky: Snarky) -> None:
     snarky.say(
         f"Make a snide remark about the person wearing {person_description}. "
         f"Express that they are super impolite for simply leaving a conversation like that. "
-        f"End the conversation angrily."
+        f"End the conversation angrily.",
+        image_content=image_content
     )
 
 
@@ -352,22 +348,22 @@ async def point_out_goodbye(image_content: str, person_description: str, snarky:
     )
 
 
-async def finish(data: str, image_content: str, snarky: Snarky) -> None:
+async def finish(image_content: str, snarky: Snarky) -> None:
     snarky.say("Pick out particular aspects of what the person said. "
                "Explicitly doubt the truthfulness of these aspects. "
                "Don't repeat anything you've already said. "
                "End the conversation abruptly. Respond in the same language.",
-               image_content=image_content, data=data)
+               image_content=image_content)
 
 
-async def pick(data: str, image_content: str, snarky: Snarky) -> None:
+async def pick(image_content: str, snarky: Snarky) -> None:
     snarky.say(
         "Pick out particular aspects of what the person said. "
         "Do not literally repeat what they said. "
         "Don't repeat anything you've already said. "
         "Explicitly doubt the truthfulness of these aspects. "
         "Respond in the same language.",
-        image_content=image_content, data=data)
+        image_content=image_content)
 
 
 async def initiate(person_description: str, image_content: str, snarky: Snarky) -> None:
@@ -381,7 +377,7 @@ async def initiate(person_description: str, image_content: str, snarky: Snarky) 
     )
 
 
-async def main_new() -> None:
+async def main() -> None:
     # todo:
     # - [ ] change it to
     #   - [ ] system prompt
@@ -390,114 +386,75 @@ async def main_new() -> None:
     #           you see the person in the image. you comment on changes from one image to the next."
     #   - [ ] classical history
 
-    snarky = Snarky(cheap=True)
+    snarky = Snarky()
     # calibrate audio level?
 
     while True:
         snarky.reset()
 
         image = snarky.get_image()
-        if not snarky.is_person_in_image(image):
-            continue
+        while not snarky.is_person_in_image(image):
+            logger.info("No person in image.")
+            image = snarky.get_image()
 
         person_description = snarky.what_is_person_wearing(image)
+        logger.info("Person in image.")
+
+        person_left = False
+        attempt = 0
+        while not snarky.is_person_close_to_camera(image):
+            logger.info("Person not close.")
+
+            if not snarky.is_person_in_image(image):
+                person_left = True
+                break
+
+            if attempt >= 3:
+                break
+
+            person_description = snarky.what_is_person_wearing(image)
+            image_content = snarky.get_image_content(image)
+            logger.info(f"Attempt {attempt + 1} at calling over person wearing {person_description} in image {image_content}.")
+            await call_over(image_content=image_content, person_description=person_description, snarky=snarky, attempt=attempt)
+
+            attempt += 1
+            image = snarky.get_image()
+
+        if attempt >= 3:
+            logger.info("Person ignores.")
+            image_content = snarky.get_image_content(image)
+            person_description = snarky.what_is_person_wearing(image)
+            snarky.say(f"[Complain that the person wearing {person_description} ignores you.]", image_content=image_content)
+            continue
+
+        if person_left:
+            logger.info("Person left.")
+            image_content = snarky.get_image_content(image)
+            snarky.say(f"[Complain that the person wearing {person_description} does not interact.]", image_content=image_content)
+            continue
+
+        logger.info("Person is close")
+
         try:
-            for attempt in range(3):
-                await call_over(image_content=snarky.get_image_content(image), person_description=person_description, snarky=snarky)
-
-                image = snarky.get_image()
-                if snarky.is_person_close_to_camera(image):
-                    break
-
-                if not snarky.is_person_in_image(image):
-                    raise TookTooLongException()
-
-            else:
-                raise TookTooLongException()
-
-            user_response = "[Ask the person a question.]"
+            user_response = "[Ask the person like a user might ask something from their digital assistant.]"
             while True:
                 image = snarky.get_image()
                 image_content = snarky.get_image_content(image)
-                snarky.say(user_response, image_content=image_content)
+
+                logger.info(f"Snarky responds to \"{user_response}\" from person in image {image_content}.")
+                snarky_says = snarky.say(user_response, image_content=image_content)
+
+                logger.info("listening...")
                 audio_data = snarky.record_audio()
                 user_response = snarky.transcribe(audio_data)
 
         except TookTooLongException:
             image_content = snarky.get_image_content(image)
-            snarky.say("[Complain that the person does not interact.]", image_content=image_content)
+            person_description = snarky.what_is_person_wearing(image)
+            logger.info(f"Person wearing {person_description} in image {image_content} does not respond.")
+
+            snarky.say(f"[Complain that the person wearing {person_description} seems a bit slow.]", image_content=image_content)
             continue
-
-
-async def main() -> None:
-    # snarky = Snarky(cheap=True)
-    snarky = Snarky(cheap=False)
-    snarky.reset()
-
-    while True:
-        image = snarky.get_image()
-        if not snarky.is_person_in_image(image):
-            print("No person in image.")
-            continue
-
-        person_description = snarky.what_is_person_wearing(image)
-        image_content = snarky.get_image_content(image)
-        if not snarky.is_person_close_to_camera(image):
-            print("Person is not close to camera.")
-            await call_over(image_content, person_description, snarky)
-            time.sleep(3)
-            continue
-
-        print("Person is close to camera.")
-        await initiate(person_description, image_content, snarky)
-
-        exchanges = 0
-        took_too_long = 0
-        while True:
-            try:
-                audio_data = snarky.record_audio()
-
-                user_response = snarky.transcribe(audio_data)
-                print(f"User: {user_response}")
-
-                image = snarky.get_image()
-                image_content = snarky.get_image_content(image)
-                data = make_element(user_response, "personSays")
-
-                if exchanges >= 3:
-                    print("Pick at person and finish.")
-                    await finish(data, image_content, snarky)
-                    snarky.reset()
-                    break
-
-                print("Pick at person.")
-                await pick(data, image_content, snarky)
-
-                exchanges += 1
-
-            except TookTooLongException:
-                image = snarky.get_image()
-                if not snarky.is_person_in_image(image):
-                    print("Person left.")
-                    await outraged(person_description, snarky)
-                    snarky.reset()
-                    break
-
-                if took_too_long >= 3:
-                    print("Call out person and leave.")
-                    await point_out_goodbye(image_content, person_description, snarky)
-                    snarky.reset()
-                    break
-
-                if took_too_long < 1:
-                    print("Call out person.")
-                    await point_out(image_content, person_description, snarky)
-
-                elif took_too_long < 2:
-                    print("Call out person again.")
-                    await point_out_again(image_content, person_description, snarky)
-
-                took_too_long += 1
 
 
 if __name__ == "__main__":
