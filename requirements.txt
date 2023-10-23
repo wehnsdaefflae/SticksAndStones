@@ -12,11 +12,11 @@ soundfile~=0.12.1
 datasets~=2.14.5
 sentencepiece~=0.1.99
 elevenlabs~=0.2.26
-TTS~=0.17.4
+TTS~=0.17.9
 playsound~=1.3.0
 optimum~=1.13.2
 accelerate~=0.23.0
-numpy==1.24.4
+numpy==1.24.3
 PyAudio~=0.2.13
 playwright~=1.38.0
 Unidecode~=1.3.6
