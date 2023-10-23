@@ -54,6 +54,7 @@ class AudioRecorder:
             channels=self.channels,
             rate=self.rate,
             input=True,
+            # input_device_index=15
         )
         try:
             yield _stream
