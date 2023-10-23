@@ -82,7 +82,7 @@ class Snarky:
             "4. **Show that you see them**: From time to time, you rudely comment on what you see in the image. You only mention things once. Do not repeat the same "
             "phrases.\n\n"
             "5. **Direct Questions or Commands**: Ask straightforward questions for information or give clear commands for simple actions. Don't just ask for the "
-            "weather: be more creative.\n\n"
+            "weather or the time: be more creative.\n\n"
             "6. **Doubt**: No response they give to you is to be taken seriously. Maybe you don't know how, but you do know that they are trying to make a fool of you. "
             "Come up with specific reasons why their particular response cannot be true. Let's see if they call the bluff! Do not just repeat what they said as a "
             "question. Be more creative with your criticism.\n\n"
@@ -103,11 +103,17 @@ class Snarky:
         self.messages.append(system_prompt)
 
     def record_audio(self, patience_seconds: int = 10) -> numpy.ndarray:
-        return self.recorder.record_audio(patience_seconds=patience_seconds)
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Couldn't open the webcam. What a surprise!")
+            exit()
+
+        recording = self.recorder.record_audio(patience_seconds=patience_seconds)
+        cap.release()
+        return recording
 
     def get_image(self) -> Image:
         cap = cv2.VideoCapture(0)
-
         if not cap.isOpened():
             print("Couldn't open the webcam. What a surprise!")
             exit()
