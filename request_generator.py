@@ -2,7 +2,6 @@ import random
 
 components = [
     [
-        "check this document for errors",
         "give me a ride home",
         "share that recipe with me",
         "water the plants",

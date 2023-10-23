@@ -378,7 +378,7 @@ async def no_person_loop(snarky: Snarky) -> Image:
             image_content = snarky.get_image_content(image)
             snarky.say(
                 "[Complain that there's no one around. "
-                "Being all alone, the event is pretty boring. "
+                "You are desperately looking for someone but instead you're all alone. "
                 "Express this creatively. Do not repeat yourself. "
                 "Talk to yourself, do not address someone specific.]",
                 image_content=image_content)
