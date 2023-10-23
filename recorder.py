@@ -1,3 +1,4 @@
+import threading
 import time
 import wave
 from contextlib import contextmanager
@@ -5,6 +6,8 @@ from contextlib import contextmanager
 import numpy
 import pyaudio
 import sounddevice
+
+from loguru import logger
 
 
 class TookTooLongException(Exception):
@@ -30,6 +33,7 @@ class AudioRecorder:
         Args:
             calibration_duration (int): Duration for calibration in seconds. Default is 3 seconds.
         """
+        logger.info(f"Calibrating volume for {calibration_duration} seconds...")
         total_samples = list()
         with self.start_recording() as _stream:
             for _ in range(int(self.rate / self.chunk_silent * calibration_duration)):
@@ -40,7 +44,7 @@ class AudioRecorder:
         calibration_data = numpy.concatenate(total_samples, axis=0)
         initial_loudness = self.get_loudness(calibration_data)
         self.ambient_loudness = initial_loudness * 1.2
-        print(f"Calibration complete. Ambient loudness set to: {self.ambient_loudness:.2f}")
+        logger.info(f"Calibration complete. Ambient loudness set to: {self.ambient_loudness:.2f}")
 
     @contextmanager
     def start_recording(self) -> pyaudio.Stream:
@@ -111,10 +115,13 @@ class AudioRecorder:
                         print("STOPPED LISTENING")
                         sounddevice.stop()
                         break
+
                     if patience_seconds < time.time() - started_listening_at:
                         print("Person not talking.")
                         raise TookTooLongException()
+
                 last_amplitude = amplitude
+
         _stream.stop_stream()
         _stream.close()
         _stream._parent.terminate()
