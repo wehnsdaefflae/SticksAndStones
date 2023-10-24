@@ -248,8 +248,9 @@ class Snarky:
             except openai.error.OpenAIError as e:
                 logger.error(f"OpenAI error: {e}")
                 yield "Einen Moment, mein Handy klingelt..."
-                time.sleep(5)
+                time.sleep(10)
                 yield "So, wo waren wir? Ach ja, richtig..."
+                time.sleep(2)
                 attempts += 1
                 if attempts >= 3:
                     yield "Oh, es ist was Wichtiges aufgekommen. Ich muss leider los. Tschüss!"
@@ -400,10 +401,9 @@ async def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
 async def dialog_loop(image_content: str, person_description: str, snarky: Snarky) -> None:
     user_response = (
         f"["
-        f"The `ImageContent` and the `ConversationPartner` XML tag both describe your conversation partner. "
-        f"If you refer to this description, do so as if you saw them yourself. "
-        f"Engage in conversation with them. "
-        f"Come up with a specific and unusual topic starter concerning the event."
+        f"Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
+        "If you refer to this description, do so as if you saw them. "
+        f"Engage in conversation with them with a specific and unusual topic starter concerning the event."
         f"]"
     )
     while True:
@@ -419,13 +419,12 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         transcription = snarky.transcribe(audio_data)
         match_state = (
             "["
-            "The `ImageContent` and the `ConversationPartner` XML tag both describe your conversation partner. "
-            "If you refer to this description, do so as if you saw them."
-            "Respond in the same tone as them: "
+            "Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
+            "If you refer to this description, do so as if you saw them. "
+            "IMPORTANT: Don't let it slip if they're not nice: "
             "If they sound angry, you don't respond in a nice tone but very angry. "
-            "If they sound happy, you don't respond in a sad tone but very happy. "
-            "If they sound sad, you don't respond in a happy tone nut very sad. "
-            "If they sound excited, you don't respond in a bored tone but very excited. "
+            "If they sound annoyed, you don't respond in a eager tone but very annoyed. "
+            "If they sound bored, you don't respond in a excited tone but very bored. "
             "If they sound impolite, you don't respond in a polite tone but very impolite. "
             "]"
         )
