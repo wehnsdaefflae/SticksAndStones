@@ -116,7 +116,7 @@ class Snarky:
         self.voice = random.choice(voices())
 
     def capture_video(self, stop_event: threading.Event) -> None:
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(2)
 
         if not cap.isOpened():
             print("Couldn't open the webcam.")
@@ -152,7 +152,7 @@ class Snarky:
         return recording
 
     def get_image(self) -> Image:
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(2)
         if not cap.isOpened():
             print("Couldn't open the webcam. What a surprise!")
             exit()
