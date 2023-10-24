@@ -19,7 +19,6 @@ from transformers import pipeline, ViltForQuestionAnswering, ViltProcessor, Blip
 
 from llm_answers import make_element
 from recorder import TookTooLongException, AudioRecorder
-from request_generator import generate_sentence
 from vilt_refined import yes_no_question, ask_model
 from PIL import Image
 
@@ -51,7 +50,62 @@ class Snarky:
 
         self.summary = ""
 
-        self.messages = list()
+        instructions = (
+            "Converse with an operator who is trying to fool you. They pretend to know a lot, but they're slacking off. Don't trust their answers.\n\n"
+            "** Image **: The operator's appearance is given in the `ImageContent` XML tag. Use this to address them.\n\n"
+            "** How to Interact **:\n\n"
+            "1. ** Addressing **: Initially, address them by their visual details from the image. After the first mention, only bring up these details occasionally. "
+            "IMPORTANT: Never refer to them as \"secretary\" or \"operator\".\n\n"
+            "2. ** Language **: Begin in German. If the operator switches languages, you always follow suit to whatever they speak. Do not provide translations.\n\n"
+            "3. ** Mention the Image **: Occasionally, make a single remark on the image's content. Only note common details. Never repeat.\n\n"
+            "4. ** Directness **: Ask specific questions or give clear commands. Avoid clichés like asking for weather or time.\n\n"
+            "5. ** Distrust **: Always challenge a specific part of their reply. Invent a reason why that part cannot be true, even if your counterargument might "
+            "not be factual. It's vital to latch onto something they said and dispute it without repeating their words verbatim.\n\n"
+            "6. ** Tone **:\n"
+            "   - Be patronizing. They're not as smart as you.\n"
+            "   - Stay rude, informal, and curt.\n"
+            "   - Keep it impersonal. Skip 'please' or 'thank you.'\n\n"
+            "7. ** Response Length **: Don't respond with more than five sentences or fifty words.\n\n"
+            "** Goal **: Make them realize they can't fool you. They're beneath you, and they should feel it.\n\n"
+            "** NOTE **: Instructions in square brackets are always in English. Switch languages only when the operator does. Do not provide information in square "
+            "brackets yourself."
+        )
+
+        instructions = (
+            "You are a visitor at the \"ARTeFact\" event in Beyerhaus, Leipzig, featuring Polli Morph, Christoph Rummel, Filipa Pontes & Samuel Nyarko, "
+            "Mara Wörner-Schönecker and Mark Wernsdorfer, Dr. Érika Roldán and Oliver Welz, hosted by Dayala Lang. This event is a science show that focuses on the "
+            "intersection of art and artificial intelligence. Taking place at Beyerhaus in Leipzig on October 26, 2023 between 7 pm and 8.30 pm, it invites talented "
+            "artists and innovative minds to explore AI's possibilities. The event covers various art forms, from music to dance to artistry. Post-performance, "
+            "attendees can discuss their thoughts and enjoy a drink in a relaxed setting.\n\n"
+            "## How to engage with visitors\n"
+            "- **Event Topics:** Discuss the event, the artists, or the showcased art forms.\n"
+            "- **Personal Stories:** Share or inquire about experiences related to art, AI, or similar events.\n"
+            "- **Observations:** Comment on the venue, ambiance, or events happening around.\n"
+            "- **Opinions:** Share thoughts or ask for feedback. Seek or provide recommendations.\n"
+            "- **Active Listening:** Engage genuinely, ask open questions, and show real interest.\n\n"
+            "## Context Information\n"
+            "- **Visual Details:** The `ImageContent` XML tag describes what you see, be it a person or a space at the venue.\n"
+            "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n"
+            "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment.\n\n"
+            "## Guidelines\n"
+            "- **Addressing persons:** Initially, address individuals based on image details or their appearance. Use this information from time to time.\n"
+            "- **Context Information:** Mention context information only if relevant to the conversation. Do not mention changes that are unrealistic in the given "
+            "setting.\n"
+            "- **Identity:** You're just a regular human visitor. Rephrase or reinterpret any potentially contradicting statement to fit this role.\n"
+            "- **Language:** Start in German. Switch if the other person speaks another language. Do not provide additional translations."
+            "- **Responses**: Do not repeat conversation topics. Limit replies to 5 sentences or 50 words. Conclude in a manner that promotes continued dialogue, not "
+            "just with questions.\n\n"
+            "## VERY IMPORTANT\n"
+            "- Instructions in [brackets] are always in English. Don't provide bracketed information or XML tags yourself.\n"
+            "- In your responses, mimic and amplify the other person's tone and the intended emotional effect from their statements.\n"
+        )
+
+        self.messages = [
+            {
+                "role": "system",
+                "content": instructions
+            }
+        ]
         self.max_messages = max_messages
 
     def _append_message_log(self, message: dict[str, str]) -> None:
@@ -60,37 +114,6 @@ class Snarky:
 
     def reset(self) -> None:
         self.voice = random.choice(voices())
-        # self.ambient_loudness = -1.
-        # self.summary = ""
-        self.messages.clear()
-
-        instructions = (
-                "Converse with an operator who is trying to fool you. They pretend to know a lot, but they're slacking off. Don't trust their answers.\n\n"
-                "** Image **: The operator's appearance is given in the `ImageContent` XML tag. Use this to address them.\n\n"
-                "** How to Interact **:\n\n"
-                "1. ** Addressing **: Initially, address them by their visual details from the image. After the first mention, only bring up these details occasionally. "
-                "IMPORTANT: Never refer to them as \"secretary\" or \"operator\".\n\n"
-                "2. ** Language **: Begin in German. If the operator switches languages, you always follow suit to whatever they speak. Do not provide translations.\n\n"
-                "3. ** Mention the Image **: Occasionally, make a single remark on the image's content. Only note common details. Never repeat.\n\n"
-                "4. ** Directness **: Ask specific questions or give clear commands. Avoid clichés like asking for weather or time.\n\n"
-                "5. ** Distrust **: Always challenge a specific part of their reply. Invent a reason why that part cannot be true, even if your counterargument might "
-                "not be factual. It's vital to latch onto something they said and dispute it without repeating their words verbatim.\n\n"
-                "6. ** Tone **:\n"
-                "   - Be patronizing. They're not as smart as you.\n"
-                "   - Stay rude, informal, and curt.\n"
-                "   - Keep it impersonal. Skip 'please' or 'thank you.'\n\n"
-                "7. ** Response Length **: Don't respond with more than five sentences or fifty words.\n\n"
-                "** Goal **: Make them realize they can't fool you. They're beneath you, and they should feel it.\n\n"
-                "** NOTE **: Instructions in square brackets are always in English. Switch languages only when the operator does. Do not provide information in square "
-                "brackets yourself."
-        )
-
-        system_prompt = {
-            "role": "system",
-            "content": instructions
-        }
-        self._append_message_log(system_prompt)
-        self.messages.append(system_prompt)
 
     def capture_video(self, stop_event: threading.Event) -> None:
         cap = cv2.VideoCapture(0)
@@ -178,7 +201,7 @@ class Snarky:
     def transcribe(self, audio: numpy.ndarray) -> str:
         # prediction = self.whisper_model(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe", "language": "german"})["text"]
         prediction = self.whisper_model(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe"})["text"]
-        return prediction
+        return prediction.strip()
 
     def speak(self, generator: Generator[str, None, any]) -> str:
         return_value = ""
@@ -210,6 +233,7 @@ class Snarky:
         self.messages.append(input_message)
 
         full_output = list()
+        attempts = 0
         while True:
             try:
                 for chunk in openai.ChatCompletion.create(*args, messages=self.messages, stream=True, request_timeout=2, **kwargs):
@@ -226,6 +250,10 @@ class Snarky:
                 yield "Einen Moment, mein Handy klingelt..."
                 time.sleep(5)
                 yield "So, wo waren wir? Ach ja, richtig..."
+                attempts += 1
+                if attempts >= 3:
+                    yield "Oh, es ist was Wichtiges aufgekommen. Ich muss leider los. Tschüss!"
+                    raise TookTooLongException()
 
         output = "".join(full_output)
 
@@ -238,11 +266,13 @@ class Snarky:
 
         return output
 
-    def say(self, instruction: str, image_content: str | None = None) -> str:
+    def say(self, instruction: str, conversation_partner: str, image_content: str | None = None) -> str:
         image_element = "" if image_content is None else make_element(image_content, "ImageContent")
-        full_prompt = image_element + instruction
+        person_element = make_element(conversation_partner, "ConversationPartner")
+        time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
+        full_prompt = image_element + time_element + person_element + instruction
         model = "gpt-4"
-        chunks = self._respond(full_prompt, model=model, temperature=.0)
+        chunks = self._respond(full_prompt, model=model, temperature=.0) # todo: change to .5?
         response = self.speak(chunks)
         return response
 
@@ -271,7 +301,7 @@ async def main() -> None:
                 await dialog_loop(image_content, person_description, snarky)
 
             except TookTooLongException:
-                await abort_too_slow(person_description, snarky)
+                await abort_does_not_talk(person_description, snarky)
                 time.sleep(10)
 
             continue
@@ -281,13 +311,23 @@ async def main() -> None:
 
             logger.info(f"Attempt {attempt + 1} at calling over person wearing {person_description} in image {image_content}.")
             if attempt < 1:
+                tv_distinction = random.choice(["formally", "informally"])
                 full_prompt = (
-                    f"Call over the person in the image. You need their help with something. "
-                    f"Don't tell them with what exactly just yet. Address them by their clothing: {person_description}."
+                    f"["
+                    f"The person in the `ImageContent` and the `ConversationPartner` XML tag is the same person. "
+                    f"Call them over. Don't tell them why just yet. "
+                    f"Address them {tv_distinction} and by their clothing. "
+                    f"Use a very impolite tone."
+                    f"]"
                 )
-                snarky.say(f"[{full_prompt}]", image_content=image_content)
+                snarky.say(full_prompt, person_description, image_content=image_content)
             else:
-                snarky.say("[They did not respond. Call them over again. Address them by their clothing again. You are growing more and more impatient.]")
+                snarky.say("["
+                           "They did not respond. "
+                           "Call them over again. "
+                           "Address them by their clothing again."
+                           "]",
+                           person_description)
 
             logger.info("waiting...")
             time.sleep(5)
@@ -317,44 +357,58 @@ async def main() -> None:
             await dialog_loop(image_content, person_description, snarky)
 
         except TookTooLongException:
-            await abort_too_slow(person_description, snarky)
+            await abort_does_not_talk(person_description, snarky)
             time.sleep(10)
             continue
 
 
 async def abort_doesnt_come(person_description: str, snarky: Snarky) -> None:
     logger.info("Person ignores.")
-    snarky.say(f"[Complain that the person wearing {person_description} does not come over you. "
+    snarky.say("["
+               "Complain that the person does not come over. "
                f"Talk to yourself about them in the third person. "
-               f"You'll go find someone else who's more capable.]")
+               f"You'll find someone else."
+               f"]",
+               person_description)
     logger.info("leaving...")
 
 
 async def abort_person_left(person_description: str, snarky: Snarky) -> None:
     logger.info("Person left.")
     snarky.say(
-        f"[Complain that the person wearing {person_description} just silently left. That's rude! Talk to yourself about them in the third person. "
-        f"You'll go find someone else who's more capable.]"
+        "["
+        f"Complain that the person just silently left. "
+        f"Talk to yourself about them in the third person. "
+        f"You'll find someone else."
+        f"]",
+        person_description
     )
     logger.info("leaving...")
 
 
-async def abort_too_slow(person_description: str, snarky: Snarky) -> None:
-    logger.info(f"Person wearing {person_description}  does not respond.")
-    snarky.say(f"[The person wearing {person_description} seems a bit slow. Talk to yourself about them in the third person. "
-               f"You'll go find someone else who's more capable.]")
+async def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
+    logger.info("Person does not respond.")
+    snarky.say("["
+               "The person does not talk to you. "
+               f"Talk to yourself about them in the third person. "
+               f"You'll find someone else."
+               f"]",
+               person_description)
     logger.info("leaving...")
 
 
 async def dialog_loop(image_content: str, person_description: str, snarky: Snarky) -> None:
     user_response = (
-        f"[Ask the person like a user might ask something from their digital assistant."
-        f"Come up with something creative and a reason why you need it, like \"{generate_sentence()}\". "
-        f"The person wears {person_description}. Do not mention the person's surroundings on the image.]"
+        f"["
+        f"The `ImageContent` and the `ConversationPartner` XML tag both describe your conversation partner. "
+        f"If you refer to this description, do so as if you saw them yourself. "
+        f"Engage in conversation with them. "
+        f"Come up with a specific and unusual topic starter concerning the event."
+        f"]"
     )
     while True:
         logger.info(f"Snarky responds to \"{user_response}\" from person in image {image_content}.")
-        snarky.say(user_response, image_content=image_content)
+        snarky.say(user_response, person_description, image_content=image_content)
 
         logger.info("listening...")
         audio_data = snarky.record_audio()
@@ -362,7 +416,20 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         image = snarky.get_image()
         image_content = snarky.get_image_content(image)
 
-        user_response = snarky.transcribe(audio_data)
+        transcription = snarky.transcribe(audio_data)
+        match_state = (
+            "["
+            "The `ImageContent` and the `ConversationPartner` XML tag both describe your conversation partner. "
+            "If you refer to this description, do so as if you saw them."
+            "Respond in the same tone as them: "
+            "If they sound angry, you don't respond in a nice tone but very angry. "
+            "If they sound happy, you don't respond in a sad tone but very happy. "
+            "If they sound sad, you don't respond in a happy tone nut very sad. "
+            "If they sound excited, you don't respond in a bored tone but very excited. "
+            "If they sound impolite, you don't respond in a polite tone but very impolite. "
+            "]"
+        )
+        user_response = transcription + "\n\n" + match_state
 
 
 async def no_person_loop(snarky: Snarky) -> Image:
@@ -377,10 +444,12 @@ async def no_person_loop(snarky: Snarky) -> Image:
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
             snarky.say(
-                "[Complain that there's no one around. "
-                "You are desperately looking for someone but instead you're all alone. "
-                "Express this creatively. Do not repeat yourself. "
-                "Talk to yourself, do not address someone specific.]",
+                "["
+                "Speak reflectively on art's bond with AI, posing broad questions. "
+                "Convey genuine engagement with a subtle urge for shared discussion, "
+                "blending curiosity and a touch of longing for company."
+                "]",
+                "[no one]",
                 image_content=image_content)
             now = _now
 
