@@ -18,6 +18,7 @@ import torch
 from transformers import pipeline, ViltForQuestionAnswering, ViltProcessor, BlipForConditionalGeneration, BlipProcessor
 
 from cameras import get_last_camera_index
+from conversation_stance import generate_random_stance
 from llm_answers import make_element
 from recorder import TookTooLongException, AudioRecorder
 from vilt_refined import yes_no_question, ask_model
@@ -65,8 +66,8 @@ class Snarky:
             "- **Visual Details:** The `ImageContent` XML tag describes what you see, be it a person or a space at the venue.\n"
             "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment. It describes the same person as "
             "`ImageContent`.\n"
-            "- **Mood:** The `Mood` tag describes your mood or emotional state. Make sure it shows in your responses!\n"
-            "- **Intention:** The `Intention` tag describes the intention that motivates your responses. Make sure your responses reflect that!\n"
+            "- **Conversational Stance:** The XML tag `ConversationalStance` describes how you come across in a conversation. Make sure that this is expressed in your "
+            "responses!\n"
             "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n\n"
             "## Guidelines\n"
             "- **Context Information:** Use context information to inform your responses but mention it explicitly only if relevant to the conversation. Ignore "
@@ -95,15 +96,7 @@ class Snarky:
         }
 
         self.camera_index = 0
-        self.all_states = (
-            "angry", "annoyed", "bored", "impatient", "irritated", "pissed off", "upset", "afraid", "anxious", "concerned", "confused", "disappointed",
-            "distressed", "embarrassed", "frightened", "frustrated", "guilty", "hurt", "lonely", "nervous", "overwhelmed", "sad", "shocked", "stressed", "tired"
-        )
-        self.all_intentions = (
-            "flirty", "argumentative", "humorous", "sarcastic", "cocky", "confident", "curious", "determined", "dismissive", "doubtful", "encouraging",
-        )
-        self.state = random.choice(self.all_states)
-        self.intention = random.choice(self.all_intentions)
+        self.stance = generate_random_stance()
 
     def _append_message_log(self, message: dict[str, str]) -> None:
         with self.messages_log.open(mode="a") as file:
@@ -112,8 +105,7 @@ class Snarky:
     def reset(self) -> None:
         self.voice = random.choice(voices())
         del self.messages[1:]
-        self.state = random.choice(self.all_states)
-        self.intention = random.choice(self.all_intentions)
+        self.stance = generate_random_stance()
 
     def capture_video(self, stop_event: threading.Event) -> None:
         cap = cv2.VideoCapture(self.camera_index)
@@ -221,7 +213,7 @@ class Snarky:
             voice=self.voice,
             model="eleven_multilingual_v1",
             stream=True,
-            # latency=3
+            latency=3
         )
         stream(audio_stream)
 
@@ -269,7 +261,7 @@ class Snarky:
 
     def say(self, instruction: str, conversation_partner: str, image_content: str | None = None) -> str:
         logger.info(
-            f"Snarky in state [{self.state}] with intention [{self.intention}] responds to \"{instruction}\" from person wearing \"{conversation_partner}\"."
+            f"Snarky [{self.stance}] responds to \"{instruction}\" from person wearing \"{conversation_partner}\"."
         )
 
         if image_content is not None:
@@ -277,10 +269,9 @@ class Snarky:
 
         image_element = "" if image_content is None else make_element(image_content, "ImageContent")
         person_element = make_element(conversation_partner, "ConversationPartner")
-        mood = make_element(self.state, "Mood")
-        intention = make_element(self.intention, "Intention")
+        stance = make_element(self.stance, "ConversationalStance")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
-        full_prompt = image_element + person_element + time_element + mood + intention + instruction
+        full_prompt = image_element + person_element + time_element + stance + instruction
         chunks = self._respond(full_prompt, **self.openai_kwargs)
         response = self._speak(chunks)
         return response
@@ -418,8 +409,10 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         image_content = snarky.get_image_content(image)
 
         transcription = snarky.transcribe(audio_data)
-        if random.random() < .3:
+        if random.random() < .5:
             user_response = transcription + "\n\n[Smoothly transition from the current topic into asking a personal question.]"
+            snarky.mood = "eager"
+            snarky.intention = "flirty"
         else:
             user_response = transcription + "\n\n[Finish your response with a question only if they asked you something before. Otherwise end on a controversial note.]"
 
