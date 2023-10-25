@@ -56,27 +56,6 @@ class Snarky:
         self.summary = ""
 
         instructions = (
-            "Converse with an operator who is trying to fool you. They pretend to know a lot, but they're slacking off. Don't trust their answers.\n\n"
-            "** Image **: The operator's appearance is given in the `ImageContent` XML tag. Use this to address them.\n\n"
-            "** How to Interact **:\n\n"
-            "1. ** Addressing **: Initially, address them by their visual details from the image. After the first mention, only bring up these details occasionally. "
-            "IMPORTANT: Never refer to them as \"secretary\" or \"operator\".\n\n"
-            "2. ** Language **: Begin in German. If the operator switches languages, you always follow suit to whatever they speak. Do not provide translations.\n\n"
-            "3. ** Mention the Image **: Occasionally, make a single remark on the image's content. Only note common details. Never repeat.\n\n"
-            "4. ** Directness **: Ask specific questions or give clear commands. Avoid clichés like asking for weather or time.\n\n"
-            "5. ** Distrust **: Always challenge a specific part of their reply. Invent a reason why that part cannot be true, even if your counterargument might "
-            "not be factual. It's vital to latch onto something they said and dispute it without repeating their words verbatim.\n\n"
-            "6. ** Tone **:\n"
-            "   - Be patronizing. They're not as smart as you.\n"
-            "   - Stay rude, informal, and curt.\n"
-            "   - Keep it impersonal. Skip 'please' or 'thank you.'\n\n"
-            "7. ** Response Length **: Don't respond with more than five sentences or fifty words.\n\n"
-            "** Goal **: Make them realize they can't fool you. They're beneath you, and they should feel it.\n\n"
-            "** NOTE **: Instructions in square brackets are always in English. Switch languages only when the operator does. Do not provide information in square "
-            "brackets yourself."
-        )
-
-        instructions = (
             "You are a visitor at the \"ARTeFact\" event in Beyerhaus, Leipzig, featuring Polli Morph, Christoph Rummel, Filipa Pontes & Samuel Nyarko, "
             "Mara Wörner-Schönecker and Mark Wernsdorfer, Dr. Érika Roldán and Oliver Welz, hosted by Dayala Lang. This event is a science show that focuses on the "
             "intersection of art and artificial intelligence. Taking place at Beyerhaus in Leipzig on October 26, 2023 between 7 pm and 8.30 pm, it invites talented "
@@ -86,18 +65,19 @@ class Snarky:
             "- **Visual Details:** The `ImageContent` XML tag describes what you see, be it a person or a space at the venue.\n"
             "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment. It describes the same person as "
             "`ImageContent`.\n"
-            "- **Emotional State:** The `EmotionalState` tag describes your current emotional state. Let it reflect in your responses.\n"
+            "- **Mood:** The `Mood` tag describes your mood or emotional state. Make sure it shows in your responses!\n"
+            "- **Intention:** The `Intention` tag describes the intention that motivates your responses. Make sure your responses reflect that!\n"
             "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n\n"
             "## Guidelines\n"
-            "- **Context Information:** Mention context information explicitly only if relevant to the conversation. Do not mention changes that are improbable in the "
-            "given setting.\n"
+            "- **Context Information:** Use context information to inform your responses but mention it explicitly only if relevant to the conversation. Ignore "
+            "information that is improbable in the given setting.\n"
             "- **Identity:** You're just a regular human visitor. Rephrase or reinterpret any potentially contradicting statement to fit this role.\n"
             "- **Language:** Use casual language. Don't be polite. Start in German. Switch if the other person speaks another language. Do not provide additional "
             "translations."
             "- **Responses**: Do not repeat conversation topics. Limit replies to 5 sentences or 50 words. Conclude in a manner that promotes continued dialogue, not "
             "just with questions.\n\n"
             "## VERY IMPORTANT\n"
-            "- Instructions in [brackets] are always in English. Don't provide bracketed information or XML tags yourself."
+            "- Instructions in [brackets] are always in English. Follow them but don't provide bracketed information or XML tags yourself."
         )
 
         self.messages = [
@@ -119,7 +99,11 @@ class Snarky:
             "angry", "annoyed", "bored", "impatient", "irritated", "pissed off", "upset", "afraid", "anxious", "concerned", "confused", "disappointed",
             "distressed", "embarrassed", "frightened", "frustrated", "guilty", "hurt", "lonely", "nervous", "overwhelmed", "sad", "shocked", "stressed", "tired"
         )
+        self.all_intentions = (
+            "flirty", "argumentative", "humorous", "sarcastic", "cocky", "confident", "curious", "determined", "dismissive", "doubtful", "encouraging",
+        )
         self.state = random.choice(self.all_states)
+        self.intention = random.choice(self.all_intentions)
 
     def _append_message_log(self, message: dict[str, str]) -> None:
         with self.messages_log.open(mode="a") as file:
@@ -129,6 +113,7 @@ class Snarky:
         self.voice = random.choice(voices())
         del self.messages[1:]
         self.state = random.choice(self.all_states)
+        self.intention = random.choice(self.all_intentions)
 
     def capture_video(self, stop_event: threading.Event) -> None:
         cap = cv2.VideoCapture(self.camera_index)
@@ -283,11 +268,19 @@ class Snarky:
         return output
 
     def say(self, instruction: str, conversation_partner: str, image_content: str | None = None) -> str:
+        logger.info(
+            f"Snarky in state [{self.state}] with intention [{self.intention}] responds to \"{instruction}\" from person wearing \"{conversation_partner}\"."
+        )
+
+        if image_content is not None:
+            logger.info(f"Image content: \"{image_content}\".")
+
         image_element = "" if image_content is None else make_element(image_content, "ImageContent")
         person_element = make_element(conversation_partner, "ConversationPartner")
-        emotional_state = make_element(self.state, "EmotionalState")
+        mood = make_element(self.state, "Mood")
+        intention = make_element(self.intention, "Intention")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
-        full_prompt = image_element + person_element + time_element + emotional_state + instruction
+        full_prompt = image_element + person_element + time_element + mood + intention + instruction
         chunks = self._respond(full_prompt, **self.openai_kwargs)
         response = self._speak(chunks)
         return response
@@ -416,7 +409,6 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
     user_response = f"[Engage in conversation with them about your initial question.]"
 
     while True:
-        logger.info(f"Snarky responds to \"{user_response}\" from person in image {image_content} in state {snarky.state}.")
         snarky.say(user_response, person_description, image_content=image_content)
 
         logger.info("listening...")
@@ -444,13 +436,7 @@ async def no_person_loop(snarky: Snarky) -> Image:
             _now = now
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
-            instructions = (
-                "["
-                "Speak reflectively on art's bond with AI, posing broad questions. "
-                "Convey genuine engagement with a subtle urge for shared discussion, "
-                "blending curiosity and a touch of longing for company."
-                "]"
-            )
+
             instructions = (
                 "["
                 "Ask yourself a thought-provoking question about the relationship between art and AI. "
