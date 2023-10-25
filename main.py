@@ -421,12 +421,12 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         if random.random() < .3:
             user_response = transcription + "\n\n[Smoothly transition from the current topic into asking a personal question.]"
         else:
-            user_response = transcription
+            user_response = transcription + "\n\n[Finish your response with a question only if they asked you something before. Otherwise end on a controversial note.]"
 
 
 async def no_person_loop(snarky: Snarky) -> Image:
     image = snarky.get_image()
-    _now = -1.
+    _now = -1.  # time.time()
 
     while not snarky.is_person_in_image(image):
         logger.info("No person in image.")
