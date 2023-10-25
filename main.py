@@ -116,7 +116,8 @@ class Snarky:
 
         self.openai_kwargs = {
             "model": "gpt-4",
-            "temperature": 0
+            # "temperature": 0.
+            "temperature": .5
         }
 
         self.camera_index = 0
@@ -416,7 +417,7 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         f"["
         f"Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
         "If you refer to this description, do so as if you saw them. "
-        f"Engage in conversation with them with a specific and unusual topic starter concerning the event."
+        f"Engage in conversation with them about your initial question."
         f"]"
     )
     while True:
@@ -439,10 +440,11 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
             #"If they sound annoyed, you don't respond in a eager tone but very annoyed. "
             #"If they sound bored, you don't respond in a excited tone but very bored. "
             #"If they sound impolite, you don't respond in a polite tone but very impolite. "
-            "IMPORTANT: Be overly sensitive! If they sound angry, you reply in a very angry tone. "
-            "If they sound annoyed, you reply in a very annoyed tone. "
-            "If they sound bored, you reply in a very bored tone. "
-            "If they sound impolite, you reply in a very impolite tone."
+            "IMPORTANT: Be overly sensitive! "
+            "If they sound angry, you are angry. "
+            "If they sound annoyed, you are annoyed. "
+            "If they sound bored, you are bored. "
+            "If they sound impolite, you are impolite."
             "]"
         )
         user_response = transcription + "\n\n" + match_state
@@ -468,10 +470,10 @@ async def no_person_loop(snarky: Snarky) -> Image:
             )
             instructions = (
                 "["
-                "Dive into the relationship between art and AI, posing thought-provoking questions. "
+                "Ask yourself a thought-provoking question about the relationship between art and AI. "
                 "Your tone should be urgent and concerned. Emphasize the potential dangers of "
                 "neglecting AI's influence in the art world, making it clear you're seeking "
-                "shared understanding on the risks involved."
+                "shared understanding on the risks involved. Keep it short."
                 "]"
             )
             snarky.say(instructions, "[no one]", image_content=image_content)
