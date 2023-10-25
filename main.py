@@ -17,6 +17,7 @@ import torch
 
 from transformers import pipeline, ViltForQuestionAnswering, ViltProcessor, BlipForConditionalGeneration, BlipProcessor
 
+from cameras import get_last_camera_index
 from llm_answers import make_element
 from recorder import TookTooLongException, AudioRecorder
 from vilt_refined import yes_no_question, ask_model
@@ -28,7 +29,9 @@ class Snarky:
         assert torch.cuda.is_available()
 
         now = datetime.datetime.now()
-        self.messages_log = pathlib.Path(f"messages_{now.strftime('%Y%m%d_%H%M%S')}.jsonl")
+        messages_dir = pathlib.Path("messages")
+        messages_dir.mkdir(exist_ok=True)
+        self.messages_log = pathlib.Path(messages_dir / f"messages_{now.strftime('%Y%m%d_%H%M%S')}.jsonl")
 
         self.recorder = AudioRecorder()
 
@@ -85,8 +88,9 @@ class Snarky:
             "- **Active Listening:** Engage genuinely, ask open questions, and show real interest.\n\n"
             "## Context Information\n"
             "- **Visual Details:** The `ImageContent` XML tag describes what you see, be it a person or a space at the venue.\n"
+            "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment. It describes the same person as "
+            "`ImageContent`.\n\n"
             "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n"
-            "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment.\n\n"
             "## Guidelines\n"
             "- **Addressing persons:** Initially, address individuals based on image details or their appearance. Use this information from time to time.\n"
             "- **Context Information:** Mention context information only if relevant to the conversation. Do not mention changes that are unrealistic in the given "
@@ -108,15 +112,18 @@ class Snarky:
         ]
         self.max_messages = max_messages
 
+        self.camera_index = get_last_camera_index()
+
     def _append_message_log(self, message: dict[str, str]) -> None:
         with self.messages_log.open(mode="a") as file:
             file.write(json.dumps(message) + "\n")
 
     def reset(self) -> None:
         self.voice = random.choice(voices())
+        del self.messages[1:]
 
     def capture_video(self, stop_event: threading.Event) -> None:
-        cap = cv2.VideoCapture(2)
+        cap = cv2.VideoCapture(self.camera_index)
 
         if not cap.isOpened():
             print("Couldn't open the webcam.")
@@ -152,7 +159,7 @@ class Snarky:
         return recording
 
     def get_image(self) -> Image:
-        cap = cv2.VideoCapture(2)
+        cap = cv2.VideoCapture(self.camera_index)
         if not cap.isOpened():
             print("Couldn't open the webcam. What a surprise!")
             exit()
@@ -271,7 +278,7 @@ class Snarky:
         image_element = "" if image_content is None else make_element(image_content, "ImageContent")
         person_element = make_element(conversation_partner, "ConversationPartner")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
-        full_prompt = image_element + time_element + person_element + instruction
+        full_prompt = image_element + person_element + time_element + instruction
         model = "gpt-4"
         chunks = self._respond(full_prompt, model=model, temperature=.0) # todo: change to .5?
         response = self.speak(chunks)
@@ -421,11 +428,15 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
             "["
             "Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
             "If you refer to this description, do so as if you saw them. "
-            "IMPORTANT: Don't let it slip if they're not nice: "
-            "If they sound angry, you don't respond in a nice tone but very angry. "
-            "If they sound annoyed, you don't respond in a eager tone but very annoyed. "
-            "If they sound bored, you don't respond in a excited tone but very bored. "
-            "If they sound impolite, you don't respond in a polite tone but very impolite. "
+            #"IMPORTANT: Don't let it slip if they're not nice: "
+            #"If they sound angry, you don't respond in a nice tone but very angry. "
+            #"If they sound annoyed, you don't respond in a eager tone but very annoyed. "
+            #"If they sound bored, you don't respond in a excited tone but very bored. "
+            #"If they sound impolite, you don't respond in a polite tone but very impolite. "
+            "IMPORTANT: Be overly sensitive! If they sound angry, you reply in a very angry tone. "
+            "If they sound annoyed, you reply in a very annoyed tone. "
+            "If they sound bored, you reply in a very bored tone. "
+            "If they sound impolite, you reply in a very impolite tone."
             "]"
         )
         user_response = transcription + "\n\n" + match_state
