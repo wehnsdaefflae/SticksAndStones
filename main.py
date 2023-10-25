@@ -410,11 +410,16 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
 
         transcription = snarky.transcribe(audio_data)
         if random.random() < .5:
-            user_response = transcription + "\n\n[Smoothly transition from the current topic into asking a personal question.]"
-            snarky.mood = "eager"
-            snarky.intention = "flirty"
+            user_response = (
+                transcription + "\n\n"
+                "[Smoothly transition from the current topic into asking a personal question.]"
+            )
         else:
-            user_response = transcription + "\n\n[Finish your response with a question only if they asked you something before. Otherwise end on a controversial note.]"
+            user_response = (
+                    transcription + "\n\n"
+                    "[If they asked you something, finish your response with a question. "
+                    "Otherwise point out the importance of your initial question with a concrete example.]"
+            )
 
 
 async def no_person_loop(snarky: Snarky) -> Image:
@@ -435,15 +440,9 @@ async def no_person_loop(snarky: Snarky) -> Image:
                 "Ask yourself a thought-provoking question about the relationship between art and AI. "
                 "Emphasize the potential dangers of neglecting AI's influence in the art world, "
                 "making it clear you're seeking shared understanding on the risks involved. "
-                "Keep it short."
+                "Refrain from clichés, instead present your point of view very close to reality. Be brief."
                 "]"
             )
-            "## How to engage with visitors\n"
-            "- **Event Topics:** Discuss the event, the artists, or the showcased art forms.\n"
-            "- **Personal Stories:** Share or inquire about experiences related to art, AI, or similar events.\n"
-            "- **Observations:** Comment on the venue, ambiance, or events happening around.\n"
-            "- **Opinions:** Share thoughts or ask for feedback. Seek or provide recommendations.\n"
-            "- **Active Listening:** Engage genuinely, ask open questions, and show real interest.\n\n"
 
             snarky.say(instructions, "[no one]", image_content=image_content)
 
