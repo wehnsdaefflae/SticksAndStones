@@ -114,6 +114,11 @@ class Snarky:
         ]
         self.max_messages = max_messages
 
+        self.openai_kwargs = {
+            "model": "gpt-4",
+            "temperature": 0
+        }
+
         self.camera_index = 0
 
     def _append_message_log(self, message: dict[str, str]) -> None:
@@ -281,8 +286,7 @@ class Snarky:
         person_element = make_element(conversation_partner, "ConversationPartner")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
         full_prompt = image_element + person_element + time_element + instruction
-        model = "gpt-4"
-        chunks = self._respond(full_prompt, model=model, temperature=.0) # todo: change to .5?
+        chunks = self._respond(full_prompt, **self.openai_kwargs) # todo: change to .5?
         response = self.speak(chunks)
         return response
 
@@ -364,7 +368,7 @@ async def main() -> None:
         logger.info("Person is close")
         person_description = snarky.what_is_person_wearing(image)
         try:
-            await dialog_loop(image_content, person_description, snarky)
+            await dialog_loop(image_content, person_description, snarky)  # todo: continue original question
 
         except TookTooLongException:
             await abort_does_not_talk(person_description, snarky)
