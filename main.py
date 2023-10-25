@@ -455,14 +455,22 @@ async def no_person_loop(snarky: Snarky) -> Image:
         if _now - now >= 60:
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
-            snarky.say(
+            instructions = (
                 "["
                 "Speak reflectively on art's bond with AI, posing broad questions. "
                 "Convey genuine engagement with a subtle urge for shared discussion, "
                 "blending curiosity and a touch of longing for company."
-                "]",
-                "[no one]",
-                image_content=image_content)
+                "]"
+            )
+            instructions = (
+                "["
+                "Dive into the relationship between art and AI, posing thought-provoking questions. "
+                "Your tone should be urgent and concerned. Emphasize the potential dangers of "
+                "neglecting AI's influence in the art world, making it clear you're seeking "
+                "shared understanding on the risks involved."
+                "]"
+            )
+            snarky.say(instructions, "[no one]", image_content=image_content)
             now = _now
 
         image = snarky.get_image()
