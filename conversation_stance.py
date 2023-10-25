@@ -5,9 +5,14 @@ from typing import List
 def generate_random_stance() -> str:
     # Define the categories with concise and unambiguous descriptions in the second person
     emotion: List[str] = [
-        "You're full of joy",
-        "You're indifferent",
-        "You're deeply upset"
+        # "You're full of joy",
+        # "You're indifferent",
+        # "You're deeply upset"
+        "You're consumed by anger",
+        "You're overwhelmed with sadness",
+        "You're paralyzed by fear",
+        "You're bubbling with jealousy",
+        "You're seething with disgust"
     ]
 
     engagement: List[str] = [
@@ -35,4 +40,5 @@ def generate_random_stance() -> str:
 
 # Testing the function
 if __name__ == "__main__":
-    print(generate_random_stance())
+    for _ in range(10):
+        print(generate_random_stance())
