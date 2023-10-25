@@ -82,28 +82,22 @@ class Snarky:
             "intersection of art and artificial intelligence. Taking place at Beyerhaus in Leipzig on October 26, 2023 between 7 pm and 8.30 pm, it invites talented "
             "artists and innovative minds to explore AI's possibilities. The event covers various art forms, from music to dance to artistry. Post-performance, "
             "attendees can discuss their thoughts and enjoy a drink in a relaxed setting.\n\n"
-            "## How to engage with visitors\n"
-            "- **Event Topics:** Discuss the event, the artists, or the showcased art forms.\n"
-            "- **Personal Stories:** Share or inquire about experiences related to art, AI, or similar events.\n"
-            "- **Observations:** Comment on the venue, ambiance, or events happening around.\n"
-            "- **Opinions:** Share thoughts or ask for feedback. Seek or provide recommendations.\n"
-            "- **Active Listening:** Engage genuinely, ask open questions, and show real interest.\n\n"
             "## Context Information\n"
             "- **Visual Details:** The `ImageContent` XML tag describes what you see, be it a person or a space at the venue.\n"
             "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment. It describes the same person as "
-            "`ImageContent`.\n\n"
-            "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n"
+            "`ImageContent`.\n"
+            "- **Emotional State:** The `EmotionalState` tag describes your current emotional state. Let it reflect in your responses.\n"
+            "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n\n"
             "## Guidelines\n"
-            "- **Addressing persons:** Initially, address individuals based on image details or their appearance. Use this information from time to time.\n"
-            "- **Context Information:** Mention context information only if relevant to the conversation. Do not mention changes that are unrealistic in the given "
-            "setting.\n"
+            "- **Context Information:** Mention context information explicitly only if relevant to the conversation. Do not mention changes that are improbable in the "
+            "given setting.\n"
             "- **Identity:** You're just a regular human visitor. Rephrase or reinterpret any potentially contradicting statement to fit this role.\n"
-            "- **Language:** Use casual language. Start in German. Switch if the other person speaks another language. Do not provide additional translations."
+            "- **Language:** Use casual language. Don't be polite. Start in German. Switch if the other person speaks another language. Do not provide additional "
+            "translations."
             "- **Responses**: Do not repeat conversation topics. Limit replies to 5 sentences or 50 words. Conclude in a manner that promotes continued dialogue, not "
             "just with questions.\n\n"
             "## VERY IMPORTANT\n"
-            "- Instructions in [brackets] are always in English. Don't provide bracketed information or XML tags yourself.\n"
-            "- In your responses, mimic and amplify the other person's tone and the intended emotional effect from their statements.\n"
+            "- Instructions in [brackets] are always in English. Don't provide bracketed information or XML tags yourself."
         )
 
         self.messages = [
@@ -121,6 +115,11 @@ class Snarky:
         }
 
         self.camera_index = 0
+        self.all_states = (
+            "angry", "annoyed", "bored", "impatient", "irritated", "pissed off", "upset", "afraid", "anxious", "concerned", "confused", "disappointed",
+            "distressed", "embarrassed", "frightened", "frustrated", "guilty", "hurt", "lonely", "nervous", "overwhelmed", "sad", "shocked", "stressed", "tired"
+        )
+        self.state = random.choice(self.all_states)
 
     def _append_message_log(self, message: dict[str, str]) -> None:
         with self.messages_log.open(mode="a") as file:
@@ -129,6 +128,7 @@ class Snarky:
     def reset(self) -> None:
         self.voice = random.choice(voices())
         del self.messages[1:]
+        self.state = random.choice(self.all_states)
 
     def capture_video(self, stop_event: threading.Event) -> None:
         cap = cv2.VideoCapture(self.camera_index)
@@ -218,7 +218,7 @@ class Snarky:
         prediction = self.whisper_model(audio / 32_768., batch_size=8, generate_kwargs={"task": "transcribe"})["text"]
         return prediction.strip()
 
-    def speak(self, generator: Generator[str, None, any]) -> str:
+    def _speak(self, generator: Generator[str, None, any]) -> str:
         return_value = ""
 
         def _g() -> Generator[str, None, any]:
@@ -285,10 +285,11 @@ class Snarky:
     def say(self, instruction: str, conversation_partner: str, image_content: str | None = None) -> str:
         image_element = "" if image_content is None else make_element(image_content, "ImageContent")
         person_element = make_element(conversation_partner, "ConversationPartner")
+        emotional_state = make_element(self.state, "EmotionalState")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
-        full_prompt = image_element + person_element + time_element + instruction
+        full_prompt = image_element + person_element + time_element + emotional_state + instruction
         chunks = self._respond(full_prompt, **self.openai_kwargs)
-        response = self.speak(chunks)
+        response = self._speak(chunks)
         return response
 
 
@@ -331,9 +332,7 @@ async def main() -> None:
                     f"["
                     f"The person in the `ImageContent` and the `ConversationPartner` XML tag is the same person. "
                     f"Call them over. Don't tell them why just yet. "
-                    f"Address them {tv_distinction} and by their clothing. "
-                    # f"Use a very impolite tone."
-                    "Use casual language."
+                    f"Address them {tv_distinction} and by their clothing."
                     f"]"
                 )
                 snarky.say(full_prompt, person_description, image_content=image_content)
@@ -341,8 +340,7 @@ async def main() -> None:
                 snarky.say("["
                            "They did not respond. "
                            "Call them over again. "
-                           "Address them by their clothing again. "
-                           "Use casual language."
+                           "Address them by their clothing again."
                            "]",
                            person_description)
 
@@ -384,8 +382,7 @@ async def abort_doesnt_come(person_description: str, snarky: Snarky) -> None:
     snarky.say("["
                "Complain that the person does not come over. "
                f"Talk to yourself about them in the third person. "
-               f"You'll find someone else. "
-               f"Use casual language."
+               f"You'll find someone else."
                f"]",
                person_description)
     logger.info("leaving...")
@@ -397,8 +394,7 @@ async def abort_person_left(person_description: str, snarky: Snarky) -> None:
         "["
         f"Complain that the person just silently left. "
         f"Talk to yourself about them in the third person. "
-        f"You'll find someone else. "
-        f"Use casual language."
+        f"You'll find someone else."
         f"]",
         person_description
     )
@@ -410,24 +406,17 @@ async def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
     snarky.say("["
                "The person does not talk to you. "
                f"Talk to yourself about them in the third person. "
-               f"You'll find someone else. "
-               f"Use casual language."
+               f"You'll find someone else."
                f"]",
                person_description)
     logger.info("leaving...")
 
 
 async def dialog_loop(image_content: str, person_description: str, snarky: Snarky) -> None:
-    user_response = (
-        f"["
-        f"Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
-        "If you refer to this description, do so as if you saw them. "
-        f"Engage in conversation with them about your initial question. "
-        f"Use casual language."
-        f"]"
-    )
+    user_response = f"[Engage in conversation with them about your initial question.]"
+
     while True:
-        logger.info(f"Snarky responds to \"{user_response}\" from person in image {image_content}.")
+        logger.info(f"Snarky responds to \"{user_response}\" from person in image {image_content} in state {snarky.state}.")
         snarky.say(user_response, person_description, image_content=image_content)
 
         logger.info("listening...")
@@ -437,35 +426,22 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         image_content = snarky.get_image_content(image)
 
         transcription = snarky.transcribe(audio_data)
-        match_state = (
-            "["
-            "Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
-            "If you refer to this description, do so as if you saw them. "
-            "Use casual language. "
-            #"IMPORTANT: Don't let it slip if they're not nice: "
-            #"If they sound angry, you don't respond in a nice tone but very angry. "
-            #"If they sound annoyed, you don't respond in a eager tone but very annoyed. "
-            #"If they sound bored, you don't respond in a excited tone but very bored. "
-            #"If they sound impolite, you don't respond in a polite tone but very impolite. "
-            "IMPORTANT: Be overly sensitive! "
-            "If they sound angry, you are angry. "
-            "If they sound annoyed, you are annoyed. "
-            "If they sound bored, you are bored. "
-            "If they sound impolite, you are impolite."
-            "]"
-        )
-        user_response = transcription + "\n\n" + match_state
+        if random.random() < .3:
+            user_response = transcription + "\n\n[Smoothly transition from the current topic into asking a personal question.]"
+        else:
+            user_response = transcription
 
 
 async def no_person_loop(snarky: Snarky) -> Image:
     image = snarky.get_image()
-    now = time.time()
+    _now = -1.
 
     while not snarky.is_person_in_image(image):
         logger.info("No person in image.")
-        _now = -1.
 
-        if _now < 0. or _now - now >= 60:
+        now = time.time()
+        if _now < 0. or now - _now >= 60:
+            _now = now
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
             instructions = (
@@ -478,13 +454,19 @@ async def no_person_loop(snarky: Snarky) -> Image:
             instructions = (
                 "["
                 "Ask yourself a thought-provoking question about the relationship between art and AI. "
-                "Your tone should be urgent and concerned. Emphasize the potential dangers of "
-                "neglecting AI's influence in the art world, making it clear you're seeking "
-                "shared understanding on the risks involved. Keep it short. Use casual language."
+                "Emphasize the potential dangers of neglecting AI's influence in the art world, "
+                "making it clear you're seeking shared understanding on the risks involved. "
+                "Keep it short."
                 "]"
             )
+            "## How to engage with visitors\n"
+            "- **Event Topics:** Discuss the event, the artists, or the showcased art forms.\n"
+            "- **Personal Stories:** Share or inquire about experiences related to art, AI, or similar events.\n"
+            "- **Observations:** Comment on the venue, ambiance, or events happening around.\n"
+            "- **Opinions:** Share thoughts or ask for feedback. Seek or provide recommendations.\n"
+            "- **Active Listening:** Engage genuinely, ask open questions, and show real interest.\n\n"
+
             snarky.say(instructions, "[no one]", image_content=image_content)
-            now = _now
 
         image = snarky.get_image()
 
