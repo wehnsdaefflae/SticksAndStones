@@ -112,7 +112,7 @@ class Snarky:
         ]
         self.max_messages = max_messages
 
-        self.camera_index = get_last_camera_index()
+        self.camera_index = 0
 
     def _append_message_log(self, message: dict[str, str]) -> None:
         with self.messages_log.open(mode="a") as file:
