@@ -18,13 +18,13 @@ def generate_random_stance() -> str:
     engagement: List[str] = [
         "you share personal stories",
         "you stick to facts",
-        "you're always asking questions"
+        # "you're always asking questions"
     ]
 
     consistency_clarity: List[str] = [
         "you're firm in your views",
         "you change topics quickly",
-        "you're hard to read"
+        # "you're hard to read"
     ]
 
     # Randomly select a description from each category
@@ -33,7 +33,7 @@ def generate_random_stance() -> str:
     random_consistency_clarity: str = random.choice(consistency_clarity)
 
     # Construct the final description
-    stance_description: str = f"{random_emotion}. While {random_engagement}, {random_consistency_clarity}."
+    stance_description: str = f"{random_emotion}, {random_engagement}, and {random_consistency_clarity}."
 
     return stance_description
 

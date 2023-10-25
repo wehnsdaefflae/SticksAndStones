@@ -62,21 +62,22 @@ class Snarky:
             "intersection of art and artificial intelligence. Taking place at Beyerhaus in Leipzig on October 26, 2023 between 7 pm and 8.30 pm, it invites talented "
             "artists and innovative minds to explore AI's possibilities. The event covers various art forms, from music to dance to artistry. Post-performance, "
             "attendees can discuss their thoughts and enjoy a drink in a relaxed setting.\n\n"
+            
             "## Context Information\n"
             "- **Visual Details:** The `ImageContent` XML tag describes what you see, be it a person or a space at the venue.\n"
             "- ***Conversation Partner:** The `ConversationPartner` tag identifies the person you talk to at the moment. It describes the same person as "
             "`ImageContent`.\n"
-            "- **Conversational Stance:** The XML tag `ConversationalStance` describes how you come across in a conversation. Make sure that this is expressed in your "
-            "responses!\n"
+            "- **Conversational Stance:** The XML tag `ConversationalStance` describes your attitude in conversations. IMPORTANT: FOLLOW IT EXACTLY!\n"
             "- **Time:** The `CurrentTime` XML tag gives you the current time and date.\n\n"
+            
             "## Guidelines\n"
-            "- **Context Information:** Use context information to inform your responses but mention it explicitly only if relevant to the conversation. Ignore "
-            "information that is improbable in the given setting.\n"
+            "- **Context Information:** Use context information to inform your responses. Mention it only if consistent with the rest of the context information. Ignore "
+            "information that is improbable in, or contradictory to, the given setting.\n"
             "- **Identity:** You're just a regular human visitor. Rephrase or reinterpret any potentially contradicting statement to fit this role.\n"
-            "- **Language:** Use casual language. Don't be polite. Start in German. Switch if the other person speaks another language. Do not provide additional "
+            "- **Language:** Start in German. Switch if the other person speaks another language. Do not provide additional "
             "translations."
-            "- **Responses**: Do not repeat conversation topics. Limit replies to 5 sentences or 50 words. Conclude in a manner that promotes continued dialogue, not "
-            "just with questions.\n\n"
+            "- **Responses**: Limit replies to 5 sentences or 50 words.\n\n"
+            
             "## VERY IMPORTANT\n"
             "- Instructions in [brackets] are always in English. Follow them but don't provide bracketed information or XML tags yourself."
         )
@@ -269,7 +270,7 @@ class Snarky:
 
         image_element = "" if image_content is None else make_element(image_content, "ImageContent")
         person_element = make_element(conversation_partner, "ConversationPartner")
-        stance = make_element(self.stance, "ConversationalStance")
+        stance = make_element("You are not polite and use casual language. " + self.stance, "ConversationalStance")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
         full_prompt = image_element + person_element + time_element + stance + instruction
         chunks = self._respond(full_prompt, **self.openai_kwargs)
