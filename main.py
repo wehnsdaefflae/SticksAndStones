@@ -28,6 +28,8 @@ class Snarky:
     def __init__(self, max_messages: int = 10):
         assert torch.cuda.is_available()
 
+        torch.cuda.empty_cache()
+
         now = datetime.datetime.now()
         messages_dir = pathlib.Path("messages")
         messages_dir.mkdir(exist_ok=True)
