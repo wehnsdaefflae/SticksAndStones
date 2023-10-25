@@ -98,7 +98,7 @@ class Snarky:
             "- **Context Information:** Mention context information only if relevant to the conversation. Do not mention changes that are unrealistic in the given "
             "setting.\n"
             "- **Identity:** You're just a regular human visitor. Rephrase or reinterpret any potentially contradicting statement to fit this role.\n"
-            "- **Language:** Start in German. Switch if the other person speaks another language. Do not provide additional translations."
+            "- **Language:** Use casual language. Start in German. Switch if the other person speaks another language. Do not provide additional translations."
             "- **Responses**: Do not repeat conversation topics. Limit replies to 5 sentences or 50 words. Conclude in a manner that promotes continued dialogue, not "
             "just with questions.\n\n"
             "## VERY IMPORTANT\n"
@@ -193,7 +193,7 @@ class Snarky:
         return yes_no_question(image, question, self.vilt_processor, self.vilt_model)
 
     def what_is_person_wearing(self, image: Image) -> str:
-        question = "What is the person wearing?"
+        question = "What clothes is the person wearing?"
         clothes = ask_model(image, question, self.vilt_processor, self.vilt_model).lower()
 
         pieces = list()
@@ -206,8 +206,8 @@ class Snarky:
         return " and ".join(pieces)
 
     def get_image_content(self, image: Image) -> str:
-        text = "the image definitely shows"
-        # text = "a photography of"
+        # text = "the image definitely shows"
+        text = "a photography of"
         inputs = self.blip_processor(images=image, text=text, return_tensors="pt").to("cuda")
         out = self.blip_model.generate(**inputs, max_length=64)
         image_content = self.blip_processor.decode(out[0], skip_special_tokens=True)
@@ -287,7 +287,7 @@ class Snarky:
         person_element = make_element(conversation_partner, "ConversationPartner")
         time_element = make_element(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), "CurrentTime")
         full_prompt = image_element + person_element + time_element + instruction
-        chunks = self._respond(full_prompt, **self.openai_kwargs) # todo: change to .5?
+        chunks = self._respond(full_prompt, **self.openai_kwargs)
         response = self.speak(chunks)
         return response
 
@@ -332,7 +332,8 @@ async def main() -> None:
                     f"The person in the `ImageContent` and the `ConversationPartner` XML tag is the same person. "
                     f"Call them over. Don't tell them why just yet. "
                     f"Address them {tv_distinction} and by their clothing. "
-                    f"Use a very impolite tone."
+                    # f"Use a very impolite tone."
+                    "Use casual language."
                     f"]"
                 )
                 snarky.say(full_prompt, person_description, image_content=image_content)
@@ -340,7 +341,8 @@ async def main() -> None:
                 snarky.say("["
                            "They did not respond. "
                            "Call them over again. "
-                           "Address them by their clothing again."
+                           "Address them by their clothing again. "
+                           "Use casual language."
                            "]",
                            person_description)
 
@@ -369,7 +371,7 @@ async def main() -> None:
         logger.info("Person is close")
         person_description = snarky.what_is_person_wearing(image)
         try:
-            await dialog_loop(image_content, person_description, snarky)  # todo: continue original question
+            await dialog_loop(image_content, person_description, snarky)
 
         except TookTooLongException:
             await abort_does_not_talk(person_description, snarky)
@@ -382,7 +384,8 @@ async def abort_doesnt_come(person_description: str, snarky: Snarky) -> None:
     snarky.say("["
                "Complain that the person does not come over. "
                f"Talk to yourself about them in the third person. "
-               f"You'll find someone else."
+               f"You'll find someone else. "
+               f"Use casual language."
                f"]",
                person_description)
     logger.info("leaving...")
@@ -394,7 +397,8 @@ async def abort_person_left(person_description: str, snarky: Snarky) -> None:
         "["
         f"Complain that the person just silently left. "
         f"Talk to yourself about them in the third person. "
-        f"You'll find someone else."
+        f"You'll find someone else. "
+        f"Use casual language."
         f"]",
         person_description
     )
@@ -406,7 +410,8 @@ async def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
     snarky.say("["
                "The person does not talk to you. "
                f"Talk to yourself about them in the third person. "
-               f"You'll find someone else."
+               f"You'll find someone else. "
+               f"Use casual language."
                f"]",
                person_description)
     logger.info("leaving...")
@@ -417,7 +422,8 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
         f"["
         f"Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
         "If you refer to this description, do so as if you saw them. "
-        f"Engage in conversation with them about your initial question."
+        f"Engage in conversation with them about your initial question. "
+        f"Use casual language."
         f"]"
     )
     while True:
@@ -435,6 +441,7 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
             "["
             "Both, the `ImageContent` and the `ConversationPartner` XML tag, describe your conversation partner. "
             "If you refer to this description, do so as if you saw them. "
+            "Use casual language. "
             #"IMPORTANT: Don't let it slip if they're not nice: "
             #"If they sound angry, you don't respond in a nice tone but very angry. "
             #"If they sound annoyed, you don't respond in a eager tone but very annoyed. "
@@ -456,9 +463,9 @@ async def no_person_loop(snarky: Snarky) -> Image:
 
     while not snarky.is_person_in_image(image):
         logger.info("No person in image.")
+        _now = -1.
 
-        _now = time.time()
-        if _now - now >= 60:
+        if _now < 0. or _now - now >= 60:
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
             instructions = (
@@ -473,7 +480,7 @@ async def no_person_loop(snarky: Snarky) -> Image:
                 "Ask yourself a thought-provoking question about the relationship between art and AI. "
                 "Your tone should be urgent and concerned. Emphasize the potential dangers of "
                 "neglecting AI's influence in the art world, making it clear you're seeking "
-                "shared understanding on the risks involved. Keep it short."
+                "shared understanding on the risks involved. Keep it short. Use casual language."
                 "]"
             )
             snarky.say(instructions, "[no one]", image_content=image_content)
