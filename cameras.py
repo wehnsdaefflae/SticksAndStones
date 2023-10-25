@@ -8,7 +8,7 @@ def is_available(source: int) -> bool:
     return available
 
 
-def return_camera_indexes() -> list[int]:
+def return_camera_indexes_deprecated() -> list[int]:
     # checks the first 10 indexes.
     index = 0
     arr = list()
@@ -23,6 +23,10 @@ def return_camera_indexes() -> list[int]:
     return arr
 
 
+def return_camera_indexes(max_index: int = 10) -> tuple[int, ...]:
+    return tuple(i for i in range(max_index) if is_available(i))
+
+
 def get_last_camera_index() -> int:
     for i in range(10, -1, -1):
         if is_available(i):
@@ -30,4 +34,6 @@ def get_last_camera_index() -> int:
     raise IndexError("No camera index found.")
 
 
-print(get_last_camera_index())
+if __name__ == "__main__":
+    print(return_camera_indexes())
+    print(get_last_camera_index())
