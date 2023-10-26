@@ -448,7 +448,7 @@ def no_person_loop(snarky: Snarky) -> Image:
 
         now = time.time()
 
-        if _now < 0. or now - _now >= 300:
+        if (_now < 0. or now - _now >= 300) and not pathlib.Path("pause.txt").exists():
             _now = now
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
