@@ -307,7 +307,7 @@ def main() -> None:
 
                 except TookTooLongException:
                     abort_does_not_talk(person_description, snarky)
-                    snarky.recorder.calibrate(calibration_duration=10)
+                    snarky.recorder.calibrate(calibration_duration=60)
 
                 continue
 
@@ -341,7 +341,7 @@ def main() -> None:
                 if not snarky.is_person_in_image(image):
                     person_left = True
                     abort_person_left(person_description, snarky)
-                    snarky.recorder.calibrate(calibration_duration=10)
+                    snarky.recorder.calibrate(calibration_duration=60)
                     break
 
                 person_close = snarky.is_person_close_to_camera(image)
@@ -350,7 +350,7 @@ def main() -> None:
 
             else:
                 abort_doesnt_come(person_description, snarky)
-                snarky.recorder.calibrate(calibration_duration=10)
+                snarky.recorder.calibrate(calibration_duration=60)
                 continue
 
             if person_left:
@@ -363,7 +363,7 @@ def main() -> None:
 
             except TookTooLongException:
                 abort_does_not_talk(person_description, snarky)
-                snarky.recorder.calibrate(calibration_duration=10)
+                snarky.recorder.calibrate(calibration_duration=60)
                 continue
 
         except KeyboardInterrupt:
@@ -374,7 +374,7 @@ def main() -> None:
             time.sleep(10)
 
             snarky = Snarky()
-            snarky.recorder.calibrate(calibration_duration=10)
+            snarky.recorder.calibrate(calibration_duration=60)
             continue
 
 
