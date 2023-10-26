@@ -136,5 +136,6 @@ class AudioRecorder:
         _stream.stop_stream()
         _stream.close()
         _stream._parent.terminate()
+
         audio_data = numpy.concatenate(current_frames, axis=0)
         return audio_data

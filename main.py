@@ -277,26 +277,83 @@ class Snarky:
 
 def main() -> None:
     snarky = Snarky()
-    snarky.recorder.calibrate(calibration_duration=5)
+    snarky.recorder.calibrate(calibration_duration=10)
 
     while True:
-        snarky.reset()
+        try:
+            snarky.reset()
 
-        while pathlib.Path("pause.txt").exists():
-            logger.info("Pause file exists. Waiting 10 seconds...")
-            time.sleep(10)
+            while pathlib.Path("pause.txt").exists():
+                logger.info("Pause file exists. Waiting 10 seconds...")
+                snarky.recorder.calibrate(calibration_duration=10)
 
-        image = no_person_loop(snarky)
+            image = no_person_loop(snarky)
 
-        person_description = snarky.what_is_person_wearing(image)
-        image_content = snarky.get_image_content(image)
+            person_description = snarky.what_is_person_wearing(image)
+            image_content = snarky.get_image_content(image)
 
-        logger.info("Person in image.")
+            logger.info("Person in image.")
 
-        person_left = False
-        person_close = snarky.is_person_close_to_camera(image)
+            person_left = False
+            person_close = snarky.is_person_close_to_camera(image)
 
-        if person_close:
+            if person_close:
+                logger.info("Person is close")
+                person_description = snarky.what_is_person_wearing(image)
+                try:
+                    dialog_loop(image_content, person_description, snarky)
+
+                except TookTooLongException:
+                    abort_does_not_talk(person_description, snarky)
+                    snarky.recorder.calibrate(calibration_duration=10)
+
+                continue
+
+            for attempt in range(3):
+                logger.info("Person not close.")
+
+                logger.info(f"Attempt {attempt + 1} at calling over person wearing {person_description} in image {image_content}.")
+                if attempt < 1:
+                    tv_distinction = random.choice(["formally", "informally"])
+                    full_prompt = (
+                        f"["
+                        f"The person in the `ImageContent` and the `ConversationPartner` XML tag is the same person. "
+                        # f"Call them over. Don't tell them why just yet. "
+                        f"Call them over to sit with you. Don't tell them why just yet. "
+                        f"Address them {tv_distinction} and by their clothing."
+                        f"]"
+                    )
+                    snarky.say(full_prompt, person_description, image_content=image_content)
+                else:
+                    snarky.say("["
+                               "They did not respond. "
+                               "Call them over again. "
+                               "Address them by their clothing again."
+                               "]",
+                               person_description)
+
+                logger.info("waiting...")
+                snarky.recorder.calibrate(calibration_duration=10)
+                image = snarky.get_image()
+
+                if not snarky.is_person_in_image(image):
+                    person_left = True
+                    abort_person_left(person_description, snarky)
+                    snarky.recorder.calibrate(calibration_duration=10)
+                    break
+
+                person_close = snarky.is_person_close_to_camera(image)
+                if person_close:
+                    break
+
+            else:
+                abort_doesnt_come(person_description, snarky)
+                snarky.recorder.calibrate(calibration_duration=10)
+                continue
+
+            if person_left:
+                continue
+
             logger.info("Person is close")
             person_description = snarky.what_is_person_wearing(image)
             try:
@@ -305,61 +362,16 @@ def main() -> None:
             except TookTooLongException:
                 abort_does_not_talk(person_description, snarky)
                 snarky.recorder.calibrate(calibration_duration=10)
+                continue
 
-            continue
+        except KeyboardInterrupt:
+            raise
 
-        for attempt in range(3):
-            logger.info("Person not close.")
+        except Exception as e:
+            logger.critical(f"Exception: {e}")
+            time.sleep(10)
 
-            logger.info(f"Attempt {attempt + 1} at calling over person wearing {person_description} in image {image_content}.")
-            if attempt < 1:
-                tv_distinction = random.choice(["formally", "informally"])
-                full_prompt = (
-                    f"["
-                    f"The person in the `ImageContent` and the `ConversationPartner` XML tag is the same person. "
-                    # f"Call them over. Don't tell them why just yet. "
-                    f"Call them over to sit with you. Don't tell them why just yet. "
-                    f"Address them {tv_distinction} and by their clothing."
-                    f"]"
-                )
-                snarky.say(full_prompt, person_description, image_content=image_content)
-            else:
-                snarky.say("["
-                           "They did not respond. "
-                           "Call them over again. "
-                           "Address them by their clothing again."
-                           "]",
-                           person_description)
-
-            logger.info("waiting...")
-            snarky.recorder.calibrate(calibration_duration=10)
-            image = snarky.get_image()
-
-            if not snarky.is_person_in_image(image):
-                person_left = True
-                abort_person_left(person_description, snarky)
-                snarky.recorder.calibrate(calibration_duration=10)
-                break
-
-            person_close = snarky.is_person_close_to_camera(image)
-            if person_close:
-                break
-
-        else:
-            abort_doesnt_come(person_description, snarky)
-            snarky.recorder.calibrate(calibration_duration=10)
-            continue
-
-        if person_left:
-            continue
-
-        logger.info("Person is close")
-        person_description = snarky.what_is_person_wearing(image)
-        try:
-            dialog_loop(image_content, person_description, snarky)
-
-        except TookTooLongException:
-            abort_does_not_talk(person_description, snarky)
+            snarky = Snarky()
             snarky.recorder.calibrate(calibration_duration=10)
             continue
 
@@ -441,8 +453,9 @@ def no_person_loop(snarky: Snarky) -> Image:
 
             instructions = (
                 "["
-                "Ask yourself a thought-provoking question about the relationship between art and AI. "
-                "Emphasize the potential dangers of neglecting AI's influence in the art world, "
+                "Ask yourself a question about a problem concerning the relationship between art and AI. "
+                "The problem can be from personal experience or philosophical. "
+                "Emphasize that this problem shows the danger in neglecting AI's influence in the art world, "
                 "making it clear you're seeking shared understanding on the risks involved. "
                 "Refrain from clichés, instead present your point of view very close to reality. Be brief."
                 "]"
