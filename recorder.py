@@ -69,8 +69,9 @@ class AudioRecorder:
         return 10. * numpy.log10(value)
 
     def get_loudness(self, data: numpy.ndarray) -> float:
-        rms_value = numpy.sqrt(numpy.mean(data ** 2))
-        if rms_value == 0:  # avoid log(0)
+        selected = numpy.percentile(numpy.abs(data), 95.)  # numpy.sqrt(numpy.mean(data ** 2))
+        rms_value = numpy.sqrt(numpy.mean(selected ** 2))
+        if rms_value == 0.:  # avoid log(0)
             return 0.
         return 10. * numpy.log10(rms_value)
 
@@ -107,7 +108,7 @@ class AudioRecorder:
                 data = _stream.read(dynamic_chunk)
                 amplitude = numpy.frombuffer(data, dtype=numpy.int16)
                 loudness = self.get_loudness(amplitude)
-                print(f"Loudness: {loudness:.0f}, Threshold: {self.ambient_loudness:.0f}")
+                print(f"Loudness: {loudness:.0f}, Threshold: {self.ambient_loudness:.1f}")
                 if self.is_talking(loudness, is_already_talking=is_listening):
                     if not is_listening:
                         print("STARTED LISTENING")
