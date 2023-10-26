@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 import json
 import pathlib
@@ -12,7 +11,6 @@ import cv2
 import openai
 from elevenlabs import set_api_key, generate, stream, voices
 import numpy
-import playsound
 
 import torch
 
@@ -277,14 +275,18 @@ class Snarky:
         return response
 
 
-async def main() -> None:
+def main() -> None:
     snarky = Snarky()
     snarky.recorder.calibrate(calibration_duration=5)
 
     while True:
         snarky.reset()
 
-        image = await no_person_loop(snarky)
+        while pathlib.Path("pause.txt").exists():
+            logger.info("Pause file exists. Waiting 10 seconds...")
+            time.sleep(10)
+
+        image = no_person_loop(snarky)
 
         person_description = snarky.what_is_person_wearing(image)
         image_content = snarky.get_image_content(image)
@@ -298,10 +300,10 @@ async def main() -> None:
             logger.info("Person is close")
             person_description = snarky.what_is_person_wearing(image)
             try:
-                await dialog_loop(image_content, person_description, snarky)
+                dialog_loop(image_content, person_description, snarky)
 
             except TookTooLongException:
-                await abort_does_not_talk(person_description, snarky)
+                abort_does_not_talk(person_description, snarky)
                 snarky.recorder.calibrate(calibration_duration=10)
 
             continue
@@ -335,7 +337,7 @@ async def main() -> None:
 
             if not snarky.is_person_in_image(image):
                 person_left = True
-                await abort_person_left(person_description, snarky)
+                abort_person_left(person_description, snarky)
                 snarky.recorder.calibrate(calibration_duration=10)
                 break
 
@@ -344,7 +346,7 @@ async def main() -> None:
                 break
 
         else:
-            await abort_doesnt_come(person_description, snarky)
+            abort_doesnt_come(person_description, snarky)
             snarky.recorder.calibrate(calibration_duration=10)
             continue
 
@@ -354,15 +356,15 @@ async def main() -> None:
         logger.info("Person is close")
         person_description = snarky.what_is_person_wearing(image)
         try:
-            await dialog_loop(image_content, person_description, snarky)
+            dialog_loop(image_content, person_description, snarky)
 
         except TookTooLongException:
-            await abort_does_not_talk(person_description, snarky)
+            abort_does_not_talk(person_description, snarky)
             snarky.recorder.calibrate(calibration_duration=10)
             continue
 
 
-async def abort_doesnt_come(person_description: str, snarky: Snarky) -> None:
+def abort_doesnt_come(person_description: str, snarky: Snarky) -> None:
     logger.info("Person ignores.")
     snarky.say("["
                "Complain that the person does not come over. "
@@ -373,7 +375,7 @@ async def abort_doesnt_come(person_description: str, snarky: Snarky) -> None:
     logger.info("leaving...")
 
 
-async def abort_person_left(person_description: str, snarky: Snarky) -> None:
+def abort_person_left(person_description: str, snarky: Snarky) -> None:
     logger.info("Person left.")
     snarky.say(
         "["
@@ -386,7 +388,7 @@ async def abort_person_left(person_description: str, snarky: Snarky) -> None:
     logger.info("leaving...")
 
 
-async def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
+def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
     logger.info("Person does not respond.")
     snarky.say("["
                "The person does not talk to you. "
@@ -397,7 +399,7 @@ async def abort_does_not_talk(person_description: str, snarky: Snarky) -> None:
     logger.info("leaving...")
 
 
-async def dialog_loop(image_content: str, person_description: str, snarky: Snarky) -> None:
+def dialog_loop(image_content: str, person_description: str, snarky: Snarky) -> None:
     user_response = f"[Engage in conversation with them about your initial question.]"
 
     while True:
@@ -423,7 +425,7 @@ async def dialog_loop(image_content: str, person_description: str, snarky: Snark
             )
 
 
-async def no_person_loop(snarky: Snarky) -> Image:
+def no_person_loop(snarky: Snarky) -> Image:
     image = snarky.get_image()
     _now = -1.  # time.time()
 
@@ -448,13 +450,10 @@ async def no_person_loop(snarky: Snarky) -> Image:
 
             snarky.say(instructions, "[no one]", image_content=image_content)
 
-        elif now - _now >= 60:
-            playsound.playsound("inaudible.mp3")
-
         image = snarky.get_image()
 
     return image
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -1,4 +1,3 @@
-import threading
 import time
 import wave
 from contextlib import contextmanager
