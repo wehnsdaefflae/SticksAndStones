@@ -90,7 +90,7 @@ class AudioRecorder:
             return False
         if is_already_talking:
             return value >= self.ambient_loudness * 1.1
-        return value >= self.ambient_loudness * 1.2
+        return value >= self.ambient_loudness * 1.1
 
     def save_to_file(self, all_frames: numpy.ndarray, filename: str = "output.wav") -> None:
         with wave.open(filename, mode="wb") as wf:
