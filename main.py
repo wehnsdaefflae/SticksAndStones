@@ -335,7 +335,7 @@ def main() -> None:
                                person_description)
 
                 logger.info("waiting...")
-                snarky.recorder.calibrate(calibration_duration=10)
+                time.sleep(10)
                 image = snarky.get_image()
 
                 if not snarky.is_person_in_image(image):
