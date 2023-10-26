@@ -63,11 +63,17 @@ class AudioRecorder:
             _stream.close()
             audio.terminate()
 
-    def get_loudness(self, data: numpy.ndarray) -> float:
+    def get_loudness_deprecated(self, data: numpy.ndarray) -> float:
         value = numpy.percentile(numpy.abs(data), 95.)  # numpy.sqrt(numpy.mean(data ** 2))
         if value == 0:  # avoid log(0)
             return 0.  # or return a very small value
         return 10. * numpy.log10(value)
+
+    def get_loudness(self, data: numpy.ndarray) -> float:
+        rms_value = numpy.sqrt(numpy.mean(data ** 2))
+        if rms_value == 0:  # avoid log(0)
+            return 0.
+        return 10. * numpy.log10(rms_value)
 
     def update_threshold(self, value: float) -> None:
         if self.ambient_loudness < 0.:

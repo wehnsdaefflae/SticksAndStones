@@ -12,12 +12,12 @@ import cv2
 import openai
 from elevenlabs import set_api_key, generate, stream, voices
 import numpy
+import playsound
 
 import torch
 
 from transformers import pipeline, ViltForQuestionAnswering, ViltProcessor, BlipForConditionalGeneration, BlipProcessor
 
-from cameras import get_last_camera_index
 from conversation_stance import generate_random_stance
 from llm_answers import make_element
 from recorder import TookTooLongException, AudioRecorder
@@ -74,9 +74,8 @@ class Snarky:
             "- **Context Information:** Use context information to inform your responses. Mention it only if consistent with the rest of the context information. Ignore "
             "information that is improbable in, or contradictory to, the given setting.\n"
             "- **Identity:** You're just a regular human visitor. Rephrase or reinterpret any potentially contradicting statement to fit this role.\n"
-            "- **Language:** Start in German. Switch if the other person speaks another language. Do not provide additional "
-            "translations."
-            "- **Responses**: Limit replies to 5 sentences or 50 words.\n\n"
+            "- **Language:** Start in German. Switch if the other person speaks another language. Do not provide additional translations."
+            "- **Responses**: Limit replies to 5 sentences or 50 words. If the person seems to talk nonsense, casually ask them to repeat.\n\n"
             
             "## VERY IMPORTANT\n"
             "- Instructions in [brackets] are always in English. Follow them but don't provide bracketed information or XML tags yourself."
@@ -241,9 +240,9 @@ class Snarky:
             except openai.error.OpenAIError as e:
                 logger.error(f"OpenAI error: {e}")
                 yield "Einen Moment, mein Handy klingelt..."
-                time.sleep(10)
+                self.recorder.calibrate(calibration_duration=10)
                 yield "So, wo waren wir? Ach ja, richtig..."
-                time.sleep(2)
+                self.recorder.calibrate(calibration_duration=2)
                 attempts += 1
                 if attempts >= 3:
                     yield "Oh, es ist was Wichtiges aufgekommen. Ich muss leider los. Tschüss!"
@@ -303,7 +302,7 @@ async def main() -> None:
 
             except TookTooLongException:
                 await abort_does_not_talk(person_description, snarky)
-                time.sleep(10)
+                snarky.recorder.calibrate(calibration_duration=10)
 
             continue
 
@@ -316,7 +315,8 @@ async def main() -> None:
                 full_prompt = (
                     f"["
                     f"The person in the `ImageContent` and the `ConversationPartner` XML tag is the same person. "
-                    f"Call them over. Don't tell them why just yet. "
+                    # f"Call them over. Don't tell them why just yet. "
+                    f"Call them over to sit with you. Don't tell them why just yet. "
                     f"Address them {tv_distinction} and by their clothing."
                     f"]"
                 )
@@ -330,13 +330,13 @@ async def main() -> None:
                            person_description)
 
             logger.info("waiting...")
-            time.sleep(5)
+            snarky.recorder.calibrate(calibration_duration=10)
             image = snarky.get_image()
 
             if not snarky.is_person_in_image(image):
                 person_left = True
                 await abort_person_left(person_description, snarky)
-                time.sleep(10)
+                snarky.recorder.calibrate(calibration_duration=10)
                 break
 
             person_close = snarky.is_person_close_to_camera(image)
@@ -345,7 +345,7 @@ async def main() -> None:
 
         else:
             await abort_doesnt_come(person_description, snarky)
-            time.sleep(10)
+            snarky.recorder.calibrate(calibration_duration=10)
             continue
 
         if person_left:
@@ -358,7 +358,7 @@ async def main() -> None:
 
         except TookTooLongException:
             await abort_does_not_talk(person_description, snarky)
-            time.sleep(10)
+            snarky.recorder.calibrate(calibration_duration=10)
             continue
 
 
@@ -431,7 +431,8 @@ async def no_person_loop(snarky: Snarky) -> Image:
         logger.info("No person in image.")
 
         now = time.time()
-        if _now < 0. or now - _now >= 60:
+
+        if _now < 0. or now - _now >= 300:
             _now = now
             logger.info("No person in image for 60 seconds.")
             image_content = snarky.get_image_content(image)
@@ -446,6 +447,9 @@ async def no_person_loop(snarky: Snarky) -> Image:
             )
 
             snarky.say(instructions, "[no one]", image_content=image_content)
+
+        elif now - _now >= 60:
+            playsound.playsound("inaudible.mp3")
 
         image = snarky.get_image()
 
