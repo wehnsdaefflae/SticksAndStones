@@ -164,7 +164,7 @@ class Snarky:
         return yes_no_question(image, question, self.vilt_processor, self.vilt_model)
 
     def is_person_close_to_camera(self, image: Image) -> bool:
-        question = "Is the person close to the camera?"
+        question = "Is the person very close to the camera?"
         return yes_no_question(image, question, self.vilt_processor, self.vilt_model)
 
     def what_is_person_wearing(self, image: Image) -> str:
@@ -236,15 +236,17 @@ class Snarky:
                 break
 
             except openai.error.OpenAIError as e:
-                logger.error(f"OpenAI error: {e}")
-                yield "Einen Moment, mein Handy klingelt..."
-                self.recorder.calibrate(calibration_duration=10)
-                yield "So, wo waren wir? Ach ja, richtig..."
-                self.recorder.calibrate(calibration_duration=2)
                 attempts += 1
+
+                logger.error(f"OpenAI error: {e}")
+                yield "Sorry, mein Handy hat geklingelt."
                 if attempts >= 3:
-                    yield "Oh, es ist was Wichtiges aufgekommen. Ich muss leider los. Tschüss!"
+                    yield "Es ist was Wichtiges aufgekommen. Ich muss leider los. Tschüss!"
+                    self.recorder.calibrate(calibration_duration=10)
                     raise TookTooLongException()
+
+                yield "So, wo waren wir? Ach ja, richtig..."
+                self.recorder.calibrate(calibration_duration=10)
 
         output = "".join(full_output)
 
