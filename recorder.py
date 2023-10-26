@@ -70,6 +70,10 @@ class AudioRecorder:
 
     def get_loudness(self, data: numpy.ndarray) -> float:
         selected = numpy.percentile(numpy.abs(data), 95.)  # numpy.sqrt(numpy.mean(data ** 2))
+        # remove all nan and inf
+        selected = selected[~numpy.isnan(selected)]
+        selected = selected[~numpy.isinf(selected)]
+
         rms_value = numpy.sqrt(numpy.mean(selected ** 2))
         if rms_value == 0.:  # avoid log(0)
             return 0.
